@@ -1,0 +1,12 @@
+{
+  "name": "wilbe",
+  "interface": { "displayName": "Wilbe" },
+  "plugins": [
+    {
+      "name": "wilber-agent-access",
+      "source": { "source": "local", "path": "./plugins/wilber-agent-access" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

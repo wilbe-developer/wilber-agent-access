@@ -1,0 +1,8 @@
+{
+  "name": "wilber-agent-access",
+  "version": "0.5.0",
+  "description": "Work with Wilber's authorised workflows and public-source operating data from your own agent.",
+  "author": { "name": "Wilbe" },
+  "homepage": "https://app.wilbe.com/profile?tab=ai-access",
+  "mcpServers": "./.mcp.json"
+}

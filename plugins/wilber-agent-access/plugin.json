@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "wilber-agent-access",
+  "version": "0.5.0",
+  "description": "Work with Wilber's authorised workflows and public-source operating data from your own agent.",
+  "author": { "name": "Wilbe", "url": "https://wilbe.com" },
+  "homepage": "https://app.wilbe.com/profile?tab=ai-access",
+  "keywords": ["wilber", "wilbe", "workflows", "special-projects"]
+}

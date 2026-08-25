@@ -1,0 +1,30 @@
+{
+  "name": "wilber-agent-access",
+  "version": "0.5.0+codex.20260825",
+  "description": "Work with Wilber's authorised workflows and public-source operating data from your own agent.",
+  "author": {
+    "name": "Wilbe"
+  },
+  "homepage": "https://app.wilbe.com/profile?tab=ai-access",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Wilber Agent Access",
+    "shortDescription": "Use Wilber workflows from your agent.",
+    "longDescription": "Explore exact versioned Wilber workflows, adapt no-effect copies locally, validate changes, install approved media access and submit proposals through your existing Wilber permissions.",
+    "developerName": "Wilbe",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://app.wilbe.com/profile?tab=ai-access",
+    "defaultPrompt": [
+      "Show my Wilber access and recommend a first task.",
+      "List the Wilber workflows I can adapt.",
+      "Export a workflow so we can work on a local copy."
+    ],
+    "brandColor": "#FF0A54"
+  },
+  "mcpServers": "./.mcp.json"
+}

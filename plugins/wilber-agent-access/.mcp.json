@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "wilber": {
+      "type": "http",
+      "url": "https://app.wilbe.com/api/wilber/mcp",
+      "oauth_resource": "https://app.wilbe.com/api/wilber/mcp"
+    }
+  }
+}
