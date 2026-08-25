@@ -9,9 +9,9 @@ claude plugin marketplace add wilbe-developer/wilber-agent-access
 claude plugin install wilber-agent-access@wilbe
 ```
 
-Or ask Claude:
+Or ask Claude in a local Claude Code Desktop task:
 
-> Install Wilber Agent Access from Wilbe's official marketplace at https://github.com/wilbe-developer/wilber-agent-access. Add the marketplace, install `wilber-agent-access@wilbe`, verify the publisher and version, and open secure browser authorization when prompted. Do not ask me to paste credentials or tokens into chat.
+> Install Wilber Agent Access from Wilbe's official marketplace at https://github.com/wilbe-developer/wilber-agent-access. Add the marketplace, install `wilber-agent-access@wilbe`, and verify the publisher and version. If Claude says the plugin needs a restart, stop immediately and tell me to restart. In the fresh task, run the bundled `wilber auth login`, open secure browser authorization, and verify the connection with `wilber doctor`. Do not ask me to paste credentials or tokens into chat and do not start a second authorization flow.
 
 ## Codex CLI
 
@@ -20,7 +20,7 @@ codex plugin marketplace add wilbe-developer/wilber-agent-access
 codex plugin add wilber-agent-access@wilbe
 ```
 
-Codex opens Wilbe in the browser when authorization is required. Sign in with your own Wilbe account and approve the connection.
+After installation, open a fresh task when Codex requires one. In that task, resolve the plugin's source path and run its bundled `bin/wilber auth login`. Codex opens Wilbe in the browser. Sign in with your own Wilbe account and approve the connection, then run `bin/wilber doctor`.
 
 ## Verify Wilber
 
@@ -30,16 +30,16 @@ Start a new task and ask:
 Show my Wilber identity, projects, permissions and available workflows.
 ```
 
-The client uses OAuth in the browser. No access token is copied into chat or stored by the plugin.
+The plugin uses one browser OAuth grant for both its MCP tools and CLI. The grant is stored in the operating system credential store and is never copied into chat.
 
-The bundled `wilber` CLI remains available for complete workflow exports and local workflow editing. Its first protected command can be authorized with:
+The bundled `wilber` CLI remains available for complete workflow exports and local workflow editing. It uses the same authorization as the plugin connection:
 
 ```bash
 wilber auth login
 wilber doctor
 ```
 
-That login also opens Wilbe in the browser and stores the resulting OAuth grant in the operating system credential store. It does not ask for a token. `wilber auth login --manual` remains available only as an explicit compatibility fallback for clients that cannot complete browser authorization.
+That login opens Wilbe in the browser and stores the resulting OAuth grant in the operating system credential store. The local MCP proxy reads the same grant. It does not ask for a token. `wilber auth login --manual` remains available only as an explicit compatibility fallback for clients that cannot complete browser authorization.
 
 ## Versioning and provenance
 

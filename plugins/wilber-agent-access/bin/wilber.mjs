@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import {
+  createCipheriv,
   createDecipheriv,
   createHash,
   createPublicKey,
@@ -10,14 +11,15 @@ import {
   randomBytes,
   randomUUID,
 } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   chmod,
   mkdir,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   writeFile,
@@ -27,10 +29,11 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
-const KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
-const KEYCHAIN_ACCOUNT = "default";
+const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
+const DEFAULT_KEYCHAIN_ACCOUNT = "default";
+const KEYCHAIN_KEY_PREFIX = "wb_key_v1_";
 const META_DIRECTORY = ".wilber";
 const META_FILE = "workflow.json";
 const TEXT_EXTENSIONS = new Set([
@@ -57,6 +60,33 @@ function configDirectory() {
 
 function credentialPath() {
   return path.join(configDirectory(), "credentials.json");
+}
+
+function encryptedCredentialPath() {
+  return path.join(configDirectory(), "credentials.enc.json");
+}
+
+function validatedKeychainIdentifier(value, label) {
+  if (!/^[A-Za-z0-9._-]{1,160}$/.test(value)) {
+    throw new WilberCliError(`Invalid ${label}.`, {
+      code: "invalid_keychain_identifier",
+    });
+  }
+  return value;
+}
+
+function keychainService() {
+  return validatedKeychainIdentifier(
+    process.env.WILBER_KEYCHAIN_SERVICE || DEFAULT_KEYCHAIN_SERVICE,
+    "Keychain service",
+  );
+}
+
+function keychainAccount() {
+  return validatedKeychainIdentifier(
+    process.env.WILBER_KEYCHAIN_ACCOUNT || DEFAULT_KEYCHAIN_ACCOUNT,
+    "Keychain account",
+  );
 }
 
 function mediaConfigDirectory() {
@@ -329,14 +359,68 @@ function parseStoredCredential(value) {
   return null;
 }
 
-function readMacKeychainCredential() {
-  if (process.platform !== "darwin") return null;
+function encryptCredential(serialized, key) {
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, nonce);
+  const ciphertext = Buffer.concat([
+    cipher.update(Buffer.from(serialized, "utf8")),
+    cipher.final(),
+  ]);
+  return {
+    version: 1,
+    algorithm: "AES-256-GCM",
+    nonce: nonce.toString("base64url"),
+    ciphertext: ciphertext.toString("base64url"),
+    authTag: cipher.getAuthTag().toString("base64url"),
+  };
+}
+
+function readEncryptedCredential(keychainValue) {
+  try {
+    const encodedKey = keychainValue.slice(KEYCHAIN_KEY_PREFIX.length);
+    const key = Buffer.from(encodedKey, "base64url");
+    if (key.length !== 32) return null;
+    const envelope = JSON.parse(readFileSync(encryptedCredentialPath(), "utf8"));
+    if (envelope.version !== 1 || envelope.algorithm !== "AES-256-GCM") return null;
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      key,
+      Buffer.from(envelope.nonce, "base64url"),
+    );
+    decipher.setAuthTag(Buffer.from(envelope.authTag, "base64url"));
+    const plaintext = Buffer.concat([
+      decipher.update(Buffer.from(envelope.ciphertext, "base64url")),
+      decipher.final(),
+    ]).toString("utf8");
+    return parseStoredCredential(plaintext);
+  } catch {
+    return null;
+  }
+}
+
+function inspectMacKeychainCredential() {
+  if (process.platform !== "darwin") {
+    return { credential: null, state: "unavailable" };
+  }
   const result = spawnSync(
     "security",
-    ["find-generic-password", "-a", KEYCHAIN_ACCOUNT, "-s", KEYCHAIN_SERVICE, "-w"],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ["find-generic-password", "-a", keychainAccount(), "-s", keychainService(), "-w"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
-  return result.status === 0 ? parseStoredCredential(result.stdout.trim()) : null;
+  if (result.status === 44) return { credential: null, state: "missing" };
+  if (result.status !== 0) return { credential: null, state: "unreadable" };
+  const raw = result.stdout.trim();
+  if (!raw) return { credential: null, state: "empty" };
+  const credential = raw.startsWith(KEYCHAIN_KEY_PREFIX)
+    ? readEncryptedCredential(raw)
+    : parseStoredCredential(raw);
+  return credential
+    ? { credential, state: "ready" }
+    : { credential: null, state: "invalid" };
+}
+
+function readMacKeychainCredential() {
+  return inspectMacKeychainCredential().credential;
 }
 
 async function readFileCredential() {
@@ -348,19 +432,117 @@ async function readFileCredential() {
   }
 }
 
+function credentialsMatch(expected, actual) {
+  if (!expected || !actual || expected.kind !== actual.kind) return false;
+  if (expected.accessToken !== actual.accessToken) return false;
+  if (expected.kind !== "oauth") return true;
+  return (
+    expected.refreshToken === actual.refreshToken &&
+    expected.clientId === actual.clientId &&
+    expected.tokenEndpoint === actual.tokenEndpoint
+  );
+}
+
+function deleteMacKeychainCredential() {
+  if (process.platform !== "darwin") return;
+  spawnSync(
+    "security",
+    ["delete-generic-password", "-a", keychainAccount(), "-s", keychainService()],
+    { stdio: "ignore" },
+  );
+}
+
+async function writeMacKeychainSecret(secret) {
+  if (
+    process.platform !== "darwin" ||
+    process.env.WILBER_DISABLE_KEYCHAIN === "1" ||
+    !existsSync("/usr/bin/expect")
+  ) {
+    return false;
+  }
+  const expectScript = `
+set timeout 30
+gets stdin secret
+log_user 0
+spawn /usr/bin/security add-generic-password -U -a {${keychainAccount()}} -s {${keychainService()}} -l {Wilber Agent Access} -w
+expect {
+  -re {password data.*:} { send -- "$secret\\r"; exp_continue }
+  -re {retype password.*:} { send -- "$secret\\r"; exp_continue }
+  eof { catch wait result; exit [lindex $result 3] }
+  timeout { exit 124 }
+}
+`;
+  const status = await new Promise((resolve, reject) => {
+    const child = spawn("/usr/bin/expect", ["-c", expectScript], {
+      stdio: ["pipe", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      if (stderr.length < 4096) stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stderr }));
+    child.stdin.end(`${secret}\n`);
+  });
+  return status.code === 0;
+}
+
+async function writeMacKeychainCredential(serialized) {
+  const key = randomBytes(32);
+  const keychainValue = `${KEYCHAIN_KEY_PREFIX}${key.toString("base64url")}`;
+  if (!(await writeMacKeychainSecret(keychainValue))) return false;
+  const keychainReadback = spawnSync(
+    "security",
+    ["find-generic-password", "-a", keychainAccount(), "-s", keychainService(), "-w"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+  if (keychainReadback.status !== 0 || keychainReadback.stdout.trim() !== keychainValue) {
+    deleteMacKeychainCredential();
+    return false;
+  }
+  const destination = encryptedCredentialPath();
+  const temporary = `${destination}.${process.pid}.tmp`;
+  try {
+    await mkdir(configDirectory(), { recursive: true, mode: 0o700 });
+    await writeFile(
+      temporary,
+      `${JSON.stringify(encryptCredential(serialized, key), null, 2)}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    await chmod(temporary, 0o600);
+    await rename(temporary, destination);
+    await chmod(destination, 0o600);
+    return true;
+  } catch {
+    deleteMacKeychainCredential();
+    return false;
+  } finally {
+    await rm(temporary, { force: true }).catch(() => undefined);
+  }
+}
+
 async function saveCredential(credential) {
   const serialized = JSON.stringify(credential);
-  if (process.platform === "darwin" && process.env.WILBER_DISABLE_KEYCHAIN !== "1") {
-    const result = spawnSync(
-      "security",
-      [
-        "add-generic-password", "-U", "-a", KEYCHAIN_ACCOUNT, "-s", KEYCHAIN_SERVICE,
-        "-l", "Wilber Agent Access", "-w",
-      ],
-      { input: `${serialized}\n`, encoding: "utf8", stdio: ["pipe", "ignore", "pipe"] },
-    );
-    if (result.status === 0) return "macOS Keychain";
+  const keychainWritten = await writeMacKeychainCredential(serialized);
+  if (keychainWritten) {
+    const inspected = inspectMacKeychainCredential();
+    const stored = inspected.credential;
+    if (process.env.WILBER_DEBUG === "1") {
+      process.stderr.write(
+        `Wilber Keychain write state: ${inspected.state}; verified: ${credentialsMatch(credential, stored)}\n`,
+      );
+    }
+    if (credentialsMatch(credential, stored)) {
+      await rm(credentialPath(), { force: true });
+      return "macOS Keychain";
+    }
+  } else if (process.env.WILBER_DEBUG === "1" && process.platform === "darwin") {
+    process.stderr.write("Wilber Keychain write did not complete; using the protected file store.\n");
   }
+  if (process.platform === "darwin" && process.env.WILBER_DISABLE_KEYCHAIN !== "1") {
+    deleteMacKeychainCredential();
+  }
+  await rm(encryptedCredentialPath(), { force: true });
   await mkdir(configDirectory(), { recursive: true, mode: 0o700 });
   await writeFile(credentialPath(), `${JSON.stringify(credential, null, 2)}\n`, {
     encoding: "utf8",
@@ -402,7 +584,8 @@ export async function resolveToken({ forceRefresh = false } = {}) {
   if (process.env.WILBER_ACCESS_TOKEN) {
     return { token: process.env.WILBER_ACCESS_TOKEN.trim(), source: "environment", kind: "personal_token" };
   }
-  let credential = readMacKeychainCredential();
+  const keychain = inspectMacKeychainCredential();
+  let credential = keychain.credential;
   let source = "macOS Keychain";
   if (!credential) {
     credential = await readFileCredential();
@@ -416,6 +599,18 @@ export async function resolveToken({ forceRefresh = false } = {}) {
       credential = await refreshOauthCredential(credential);
     }
     return { token: credential.accessToken, source, kind: credential.kind };
+  }
+  if (keychain.state === "empty" || keychain.state === "invalid") {
+    throw new WilberCliError(
+      "Wilber found an incomplete macOS Keychain authorization. Run `wilber auth login` once to repair it.",
+      { code: "keychain_credential_invalid" },
+    );
+  }
+  if (keychain.state === "unreadable") {
+    throw new WilberCliError(
+      "Wilber could not read its macOS Keychain authorization. Unlock Keychain Access and try again.",
+      { code: "keychain_credential_unreadable" },
+    );
   }
   throw new WilberCliError(
     "Wilber is not connected. Run `wilber auth login` to authorize this device in your browser.",
@@ -625,14 +820,11 @@ async function browserOauthLogin() {
 }
 
 async function deleteStoredToken() {
-  if (process.platform === "darwin") {
-    spawnSync(
-      "security",
-      ["delete-generic-password", "-a", KEYCHAIN_ACCOUNT, "-s", KEYCHAIN_SERVICE],
-      { stdio: "ignore" },
-    );
-  }
-  await rm(credentialPath(), { force: true });
+  deleteMacKeychainCredential();
+  await Promise.all([
+    rm(credentialPath(), { force: true }),
+    rm(encryptedCredentialPath(), { force: true }),
+  ]);
 }
 
 async function rpcRequest(method, params = {}, suppliedToken = null) {

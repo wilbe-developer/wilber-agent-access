@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "wilber": {
-      "command": "./bin/wilber",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/wilber",
       "args": ["mcp-proxy"]
     }
   }
