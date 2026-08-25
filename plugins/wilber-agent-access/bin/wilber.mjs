@@ -29,7 +29,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.6.0";
+const VERSION = "0.6.1";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";
@@ -1054,7 +1054,14 @@ function printWorkflowList(listing) {
   const drafts = listing.drafts || [];
   line(`${templates.length} shared workflows`);
   for (const workflow of templates) {
-    line(`  ${workflow.workflow_key || workflow.id}  ${workflow.name}`);
+    const sources = workflow.source_workflow_keys || [];
+    const relationship =
+      workflow.catalogue_kind === "subworkflow"
+        ? `  [subflow of ${sources.join(", ")}]`
+        : workflow.catalogue_kind === "composite"
+          ? `  [composed from ${sources.join(", ")}]`
+          : "";
+    line(`  ${workflow.workflow_key || workflow.id}  ${workflow.name}${relationship}`);
   }
   if (drafts.length) {
     line(`\n${drafts.length} private drafts`);
@@ -1125,17 +1132,23 @@ async function handleWorkflows(action, args, flags) {
   if (action === "inspect") {
     if (!args[0]) throw new WilberCliError("Usage: wilber workflows inspect <workflow>");
     const workflow = await resolveWorkflow(args[0]);
-    const [detail, files] = await Promise.all([
-      callTool("wilber_workflows_get", { id: workflow.id }),
-      callTool("wilber_workflows_list_files", { id: workflow.id }),
-    ]);
+    const detail = await callTool("wilber_workflows_get", { id: workflow.id });
+    const isComposite = detail.workflow.catalogue_kind === "composite";
+    const files = isComposite
+      ? null
+      : await callTool("wilber_workflows_list_files", { id: workflow.id });
     if (flags.json) jsonOutput({ detail, files });
     else {
       line(detail.workflow.name);
       line(detail.workflow.summary || "");
-      line(`Source: ${files.package.sourceRepository}@${files.package.sourceCommit}`);
-      line(`Package: ${files.package.packageHash} (${files.files.length} files)`);
-      for (const file of files.files) line(`  ${file.path}  ${file.sizeBytes} bytes`);
+      if (isComposite) {
+        line(`Composition: ${(detail.workflow.source_workflow_keys || []).join(", ")}`);
+        line("Fork or export the exact component workflow you want to adapt.");
+      } else {
+        line(`Source: ${files.package.sourceRepository}@${files.package.sourceCommit}`);
+        line(`Package: ${files.package.packageHash} (${files.files.length} files)`);
+        for (const file of files.files) line(`  ${file.path}  ${file.sizeBytes} bytes`);
+      }
     }
     return;
   }

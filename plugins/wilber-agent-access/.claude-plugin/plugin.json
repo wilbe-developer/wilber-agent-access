@@ -1,6 +1,6 @@
 {
   "name": "wilber-agent-access",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Work with Wilber's authorised workflows and public-source operating data from your own agent.",
   "author": { "name": "Wilbe" },
   "homepage": "https://app.wilbe.com/profile?tab=ai-access",
