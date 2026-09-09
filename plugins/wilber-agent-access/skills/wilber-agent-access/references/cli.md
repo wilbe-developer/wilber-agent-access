@@ -31,6 +31,7 @@ Use `--json` when structured output is needed. Use `--force` only when the reque
 
 ```bash
 wilber demand campaigns
+wilber demand campaign <campaign-id>
 wilber demand search "query" [--campaign <id>] [--grade <grade>] [--limit <n>]
 wilber demand person <id>
 wilber demand person-pipeline <id>
@@ -40,7 +41,15 @@ wilber demand institutional-routes <campaign-id> [--status <status>] [--lane <la
 wilber demand institutional-route <campaign-id> <route-id>
 ```
 
-These commands return only the caller's permitted projection. The standard public-source search remains contact-safe. Members with `data.demand.read_campaign` can also inspect complete Build Week campaign records, including source routes, campaign contact details, outreach messages and replies. This does not provide general Gmail, Slack or LinkedIn account access, credentials, or unrelated conversations.
+These commands return only the caller's permitted projection. The standard public-source search remains contact-safe. Members with `data.demand.read_campaign` can also inspect complete Build Week campaign records, including source routes, campaign contact details, outreach messages, replies, institutional distribution and the matching Wilbe platform cohort. This does not provide general Gmail, Slack or LinkedIn account access, credentials, or unrelated conversations.
+
+For campaign-related information not yet represented in the projection, submit a read-only collation request:
+
+```bash
+wilber request campaign-context --question "What happened across the Oxford institutional campaign?" --campaign <campaign-id>
+```
+
+The Mac mini may use authorised Global Demand, Wilbe platform, Attio and Notion context for that campaign. It cannot change those sources or read unrelated CRM, workspace, inbox, Slack, LP, fund or investment records. Check the returned request with `wilber request status <request-id>`.
 
 ## Bounded work
 

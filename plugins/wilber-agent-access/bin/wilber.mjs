@@ -29,7 +29,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.7.1";
+const VERSION = "0.7.2";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";
@@ -1284,6 +1284,11 @@ async function handleDemand(action, args, flags) {
     jsonOutput(value);
     return;
   }
+  if (action === "campaign") {
+    if (!args[0]) throw new WilberCliError("Usage: wilber demand campaign <campaign-id>");
+    jsonOutput(await callTool("wilber_demand_get_campaign", { campaignId: args[0] }));
+    return;
+  }
   if (action === "search") {
     const query = args.join(" ").trim();
     if (!query) throw new WilberCliError("Usage: wilber demand search <query>");
@@ -1331,10 +1336,27 @@ async function handleDemand(action, args, flags) {
     }));
     return;
   }
-  throw new WilberCliError("Usage: wilber demand <campaigns|search|person|person-pipeline|campaign-events|source-routes|institutional-routes|institutional-route>");
+  throw new WilberCliError("Usage: wilber demand <campaigns|campaign|search|person|person-pipeline|campaign-events|source-routes|institutional-routes|institutional-route>");
 }
 
 async function handleRequest(action, args, flags) {
+  if (action === "campaign-context") {
+    const question = String(flags.question || args.join(" ")).trim();
+    if (!question) {
+      throw new WilberCliError(
+        "Usage: wilber request campaign-context --question <question> [--campaign <id>]",
+      );
+    }
+    const campaignIds = flags.campaign
+      ? String(flags.campaign).split(",").map((value) => value.trim()).filter(Boolean)
+      : [];
+    jsonOutput(await callTool("wilber_campaign_context_request", {
+      question,
+      ...(campaignIds.length ? { campaignIds } : {}),
+      ...(flags["client-request-id"] ? { clientRequestId: String(flags["client-request-id"]) } : {}),
+    }));
+    return;
+  }
   if (action === "admin-submit") {
     const workflow = String(flags.workflow || "");
     const objective = String(flags.objective || "");
@@ -1571,8 +1593,8 @@ function help() {
   line("  wilber doctor [--json]");
   line("  wilber update [--check] [--json]");
   line("  wilber workflows <list|inspect|export|fork|validate|propose>");
-  line("  wilber demand <campaigns|search|person|person-pipeline|campaign-events|source-routes|institutional-routes|institutional-route>");
-  line("  wilber request <submit|admin-submit|status|continue>");
+  line("  wilber demand <campaigns|campaign|search|person|person-pipeline|campaign-events|source-routes|institutional-routes|institutional-route>");
+  line("  wilber request <campaign-context|submit|admin-submit|status|continue>");
   line("  wilber media credentials <install|status>");
 }
 
