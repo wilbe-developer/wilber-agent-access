@@ -27,15 +27,20 @@ wilber workflows propose <directory> --yes
 
 Use `--json` when structured output is needed. Use `--force` only when the requested output directory may be replaced safely.
 
-## Public-source demand research
+## Demand research
 
 ```bash
 wilber demand campaigns
 wilber demand search "query" [--campaign <id>] [--grade <grade>] [--limit <n>]
 wilber demand person <id>
+wilber demand person-pipeline <id>
+wilber demand campaign-events <campaign-id> [--channel <channel>] [--direction <direction>] [--event-type <type>] [--query <text>]
+wilber demand source-routes <campaign-id> [--status <status>] [--lane <lane>] [--query <text>]
+wilber demand institutional-routes <campaign-id> [--status <status>] [--lane <lane>] [--query <text>]
+wilber demand institutional-route <campaign-id> <route-id>
 ```
 
-These commands return only the caller's permitted projection. They do not expose private messages or contact details.
+These commands return only the caller's permitted projection. The standard public-source search remains contact-safe. Members with `data.demand.read_campaign` can also inspect complete Build Week campaign records, including source routes, campaign contact details, outreach messages and replies. This does not provide general Gmail, Slack or LinkedIn account access, credentials, or unrelated conversations.
 
 ## Bounded work
 

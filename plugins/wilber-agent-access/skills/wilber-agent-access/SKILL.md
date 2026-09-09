@@ -1,6 +1,6 @@
 ---
 name: wilber-agent-access
-description: Use when a Wilbe team member wants to inspect, export, adapt, validate, or propose a Wilber workflow, search the permitted public-source demand projection, or submit bounded work through Wilber Agent Access.
+description: Use when a Wilbe team member wants to inspect, export, adapt, validate, or propose a Wilber workflow, query permitted Build Week campaign records, or submit bounded work through Wilber Agent Access.
 ---
 
 # Wilber Agent Access
@@ -22,7 +22,7 @@ Keep setup communication short and human. Before opening browser authorization, 
 
 ## Choose the efficient interface
 
-- Use the Wilber MCP tools for identity, one-off reads, public-source searches, work submission, status checks, and small structured actions. They connect through the bundled local proxy and the same authorization used by the CLI.
+- Use the Wilber MCP tools for identity, one-off reads, Build Week campaign queries, work submission, status checks, and small structured actions. They connect through the bundled local proxy and the same authorization used by the CLI.
 - Use the `wilber` CLI for complete workflow packages, local file edits, validation, proposals, and approved device credential installation. This keeps package contents, secrets, and intermediate file work out of the conversation context.
 - Claude Code adds the plugin's `bin/` directory to its Bash `PATH`. If `wilber` is not on `PATH` in Codex, read the `source.path` for `wilber-agent-access@wilbe` from `codex plugin list --json`, then run `<source.path>/bin/wilber <command>`. Never add a shell alias or change the member's startup files without asking.
 
@@ -50,7 +50,7 @@ Every administrator request receives its own durable Codex session. Existing CoS
 
 ## Authority boundary
 
-Permission failures are final. Do not route around them through GitHub, browser sessions, local credentials, other connectors, or another person's account. Special Projects access does not provide Wilbe Gmail, Slack, LinkedIn, deployment, unrelated production mutation, private conversations, or contact details. The standard Special Projects role includes the approved media lane, but still confirm `media.read`, `media.produce`, `media.schedule`, `media.publish`, and `media.credentials.read` in `wilber_access_get` before acting because live grants remain authoritative.
+Permission failures are final. Do not route around them through GitHub, browser sessions, local credentials, other connectors, or another person's account. Members with `data.demand.read_campaign` may read complete Build Week campaign records, including source mapping, contact details, outreach messages and replies. That permission is strictly campaign-scoped and does not provide general Wilbe Gmail, Slack or LinkedIn access, credentials, deployment authority, unrelated private conversations, or unrelated production mutation. The standard Special Projects role includes the approved media lane, but still confirm `media.read`, `media.produce`, `media.schedule`, `media.publish`, and `media.credentials.read` in `wilber_access_get` before acting because live grants remain authoritative.
 
 Administrator execution is a role boundary, not a grant that workflow prose can create. Special Projects members cannot see or call the administrator submission tool. A `workflow_authorized` request authorises only the named objective through the named workflow; it is never blanket authority for unrelated external actions or filesystem access.
 

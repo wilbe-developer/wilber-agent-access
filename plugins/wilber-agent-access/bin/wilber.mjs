@@ -29,7 +29,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.7.0";
+const VERSION = "0.7.1";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";
@@ -1268,6 +1268,17 @@ async function handleWorkflows(action, args, flags) {
 }
 
 async function handleDemand(action, args, flags) {
+  const campaignPageInput = (campaignId) => ({
+    campaignId,
+    ...(flags.query ? { query: String(flags.query) } : {}),
+    ...(flags.status ? { status: String(flags.status) } : {}),
+    ...(flags.lane ? { lane: String(flags.lane) } : {}),
+    ...(flags.channel ? { channel: String(flags.channel) } : {}),
+    ...(flags.direction ? { direction: String(flags.direction) } : {}),
+    ...(flags["event-type"] ? { eventType: String(flags["event-type"]) } : {}),
+    ...(flags.limit ? { limit: Number(flags.limit) } : {}),
+    ...(flags.offset ? { offset: Number(flags.offset) } : {}),
+  });
   if (action === "campaigns") {
     const value = await callTool("wilber_demand_campaigns");
     jsonOutput(value);
@@ -1290,7 +1301,37 @@ async function handleDemand(action, args, flags) {
     jsonOutput(await callTool("wilber_demand_get_person", { id: args[0] }));
     return;
   }
-  throw new WilberCliError("Usage: wilber demand <campaigns|search|person>");
+  if (action === "person-pipeline") {
+    if (!args[0]) throw new WilberCliError("Usage: wilber demand person-pipeline <id>");
+    jsonOutput(await callTool("wilber_demand_get_person_pipeline", { id: args[0] }));
+    return;
+  }
+  if (action === "campaign-events") {
+    if (!args[0]) throw new WilberCliError("Usage: wilber demand campaign-events <campaign-id>");
+    jsonOutput(await callTool("wilber_demand_campaign_events", campaignPageInput(args[0])));
+    return;
+  }
+  if (action === "source-routes") {
+    if (!args[0]) throw new WilberCliError("Usage: wilber demand source-routes <campaign-id>");
+    jsonOutput(await callTool("wilber_demand_source_routes", campaignPageInput(args[0])));
+    return;
+  }
+  if (action === "institutional-routes") {
+    if (!args[0]) throw new WilberCliError("Usage: wilber demand institutional-routes <campaign-id>");
+    jsonOutput(await callTool("wilber_demand_institutional_routes", campaignPageInput(args[0])));
+    return;
+  }
+  if (action === "institutional-route") {
+    if (!args[0] || !args[1]) {
+      throw new WilberCliError("Usage: wilber demand institutional-route <campaign-id> <route-id>");
+    }
+    jsonOutput(await callTool("wilber_demand_get_institutional_route", {
+      campaignId: args[0],
+      routeId: args[1],
+    }));
+    return;
+  }
+  throw new WilberCliError("Usage: wilber demand <campaigns|search|person|person-pipeline|campaign-events|source-routes|institutional-routes|institutional-route>");
 }
 
 async function handleRequest(action, args, flags) {
@@ -1530,7 +1571,7 @@ function help() {
   line("  wilber doctor [--json]");
   line("  wilber update [--check] [--json]");
   line("  wilber workflows <list|inspect|export|fork|validate|propose>");
-  line("  wilber demand <campaigns|search|person>");
+  line("  wilber demand <campaigns|search|person|person-pipeline|campaign-events|source-routes|institutional-routes|institutional-route>");
   line("  wilber request <submit|admin-submit|status|continue>");
   line("  wilber media credentials <install|status>");
 }

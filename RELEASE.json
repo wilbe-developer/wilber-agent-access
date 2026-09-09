@@ -1,8 +1,8 @@
 {
   "name": "Wilber Agent Access",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "Wilbe",
-  "sourceCommit": "17f7ba74",
+  "sourceCommit": "9e3ba08dc6cee10881c27f36cc98915d01223ce3",
   "sourceRepository": "wilbe-developer/wilbe-process",
   "publicRepository": "https://github.com/wilbe-developer/wilber-agent-access"
 }
