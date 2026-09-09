@@ -29,7 +29,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.6.1";
+const VERSION = "0.7.0";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";
@@ -40,6 +40,8 @@ const TEXT_EXTENSIONS = new Set([
   ".css", ".csv", ".html", ".js", ".json", ".jsx", ".md", ".mjs",
   ".py", ".sh", ".svg", ".toml", ".ts", ".tsx", ".txt", ".yaml", ".yml",
 ]);
+let latestClientVersion = null;
+let currentClientOperation = null;
 
 class WilberCliError extends Error {
   constructor(message, { code = "wilber_error", status = null } = {}) {
@@ -158,6 +160,51 @@ function shellQuote(value) {
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function detectClientHost() {
+  const override = String(process.env.WILBER_CLIENT_HOST || "").toLowerCase();
+  if (["claude", "codex"].includes(override)) return override;
+  if (
+    process.env.CLAUDECODE ||
+    process.env.CLAUDE_CODE_ENTRYPOINT ||
+    process.env.CLAUDE_PLUGIN_ROOT
+  ) return "claude";
+  if (
+    process.env.CODEX_HOME ||
+    process.env.CODEX_THREAD_ID ||
+    process.env.CODEX_MANAGED_BY_NPM
+  ) return "codex";
+  return "unknown";
+}
+
+function clientHeaders(surface, operation = currentClientOperation) {
+  return {
+    "X-Wilber-Client-Surface": surface,
+    "X-Wilber-Client-Host": detectClientHost(),
+    "X-Wilber-Client-Version": VERSION,
+    ...(operation ? { "X-Wilber-Client-Operation": operation } : {}),
+  };
+}
+
+function semanticVersionParts(value) {
+  const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
+  return match ? match.slice(1).map(Number) : null;
+}
+
+function isNewerVersion(candidate, installed = VERSION) {
+  const left = semanticVersionParts(candidate);
+  const right = semanticVersionParts(installed);
+  if (!left || !right) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] > right[index];
+  }
+  return false;
+}
+
+function rememberLatestVersion(response) {
+  const candidate = response.headers.get("x-wilber-latest-client-version");
+  if (semanticVersionParts(candidate)) latestClientVersion = candidate;
 }
 
 function decryptMediaCredentialEnvelope({ requestId, privateKey, envelope }) {
@@ -827,7 +874,7 @@ async function deleteStoredToken() {
   ]);
 }
 
-async function rpcRequest(method, params = {}, suppliedToken = null) {
+async function rpcRequest(method, params = {}, suppliedToken = null, options = {}) {
   async function execute(token) {
     return fetch(endpoint(), {
       method: "POST",
@@ -837,6 +884,7 @@ async function rpcRequest(method, params = {}, suppliedToken = null) {
         "MCP-Protocol-Version": "2026-07-28",
         "Mcp-Method": method,
         ...(method === "tools/call" && params.name ? { "Mcp-Name": params.name } : {}),
+        ...clientHeaders("cli", options.operation),
       },
       body: JSON.stringify({ jsonrpc: "2.0", id: randomUUID(), method, params }),
     });
@@ -847,6 +895,7 @@ async function rpcRequest(method, params = {}, suppliedToken = null) {
     const refreshed = await resolveToken({ forceRefresh: true });
     response = await execute(refreshed.token);
   }
+  rememberLatestVersion(response);
   const bodyText = await response.text();
   let body = null;
   try {
@@ -871,8 +920,13 @@ async function rpcRequest(method, params = {}, suppliedToken = null) {
   return body?.result;
 }
 
-export async function callTool(name, argumentsValue = {}, suppliedToken = null) {
-  const result = await rpcRequest("tools/call", { name, arguments: argumentsValue }, suppliedToken);
+export async function callTool(name, argumentsValue = {}, suppliedToken = null, options = {}) {
+  const result = await rpcRequest(
+    "tools/call",
+    { name, arguments: argumentsValue },
+    suppliedToken,
+    options,
+  );
   if (result?.isError) {
     throw new WilberCliError(result?.content?.[0]?.text || `${name} failed.`);
   }
@@ -1391,8 +1445,8 @@ async function handleMedia(action, args, flags) {
 async function doctor(flags) {
   const auth = await resolveToken();
   const [profile, tools] = await Promise.all([
-    callTool("wilber_access_get"),
-    rpcRequest("tools/list"),
+    callTool("wilber_access_get", {}, null, { operation: "doctor" }),
+    rpcRequest("tools/list", {}, null, { operation: "doctor" }),
   ]);
   const result = {
     ok: true,
@@ -1405,6 +1459,8 @@ async function doctor(flags) {
     permissions: profile.permissions,
     availableTools: tools?.tools?.length || 0,
     authority: profile.authority,
+    latestVersion: latestClientVersion || VERSION,
+    updateAvailable: isNewerVersion(latestClientVersion),
   };
   if (flags.json) jsonOutput(result);
   else {
@@ -1414,7 +1470,55 @@ async function doctor(flags) {
     line(`Endpoint: ${result.endpoint}`);
     line(`Credential: ${result.credentialSource}`);
     line(`Available tools: ${result.availableTools}`);
+    if (result.updateAvailable) {
+      line(`Update available: ${VERSION} -> ${result.latestVersion}. Ask your agent to update Wilber Agent Access.`);
+    } else {
+      line(`Version: ${VERSION} (current)`);
+    }
     line("External effects: disabled");
+  }
+}
+
+async function updateClient(flags) {
+  await rpcRequest("tools/list", {}, null, { operation: "update_check" });
+  const host = detectClientHost();
+  const available = latestClientVersion || VERSION;
+  if (!isNewerVersion(available)) {
+    const result = { updated: false, currentVersion: VERSION, latestVersion: available };
+    if (flags.json) jsonOutput(result);
+    else line(`Wilber Agent Access ${VERSION} is current.`);
+    return;
+  }
+  if (flags.check) {
+    const result = { updated: false, updateAvailable: true, currentVersion: VERSION, latestVersion: available, host };
+    if (flags.json) jsonOutput(result);
+    else line(`Wilber Agent Access ${available} is available.`);
+    return;
+  }
+  if (!host || host === "unknown") {
+    throw new WilberCliError(
+      "A Wilber update is available. Ask your Claude or Codex agent to update Wilber Agent Access from the Wilbe marketplace.",
+      { code: "client_host_unknown" },
+    );
+  }
+  const commands = host === "claude"
+    ? [["claude", ["plugin", "update", "wilber-agent-access@wilbe"]]]
+    : [
+        ["codex", ["plugin", "marketplace", "upgrade", "wilbe"]],
+        ["codex", ["plugin", "add", "wilber-agent-access@wilbe"]],
+      ];
+  for (const [binary, argumentsValue] of commands) {
+    const result = spawnSync(binary, argumentsValue, { stdio: "inherit" });
+    if (result.status !== 0) {
+      throw new WilberCliError("The client could not update Wilber Agent Access.", {
+        code: "client_update_failed",
+      });
+    }
+  }
+  if (host === "claude") {
+    line("Update installed. If Claude asks, run /reload-plugins. Otherwise it will load in your next task.");
+  } else {
+    line("Update installed. Open a new Codex task, then ask it to verify Wilber Agent Access.");
   }
 }
 
@@ -1424,6 +1528,7 @@ function help() {
   line("  wilber auth <login|status|logout>  Browser authorization by default");
   line("  wilber whoami [--json]");
   line("  wilber doctor [--json]");
+  line("  wilber update [--check] [--json]");
   line("  wilber workflows <list|inspect|export|fork|validate|propose>");
   line("  wilber demand <campaigns|search|person>");
   line("  wilber request <submit|admin-submit|status|continue>");
@@ -1440,6 +1545,12 @@ async function proxyRequest(message) {
         "MCP-Protocol-Version": "2026-07-28",
         ...(message.method ? { "Mcp-Method": message.method } : {}),
         ...(message.method === "tools/call" && message.params?.name ? { "Mcp-Name": message.params.name } : {}),
+        ...clientHeaders(
+          "mcp_proxy",
+          message.method === "tools/call" && message.params?.name
+            ? message.params.name
+            : message.method,
+        ),
       },
       body: JSON.stringify(message),
     });
@@ -1450,10 +1561,23 @@ async function proxyRequest(message) {
     const refreshed = await resolveToken({ forceRefresh: true });
     response = await execute(refreshed.token);
   }
+  rememberLatestVersion(response);
   const text = await response.text();
   if (!text) return null;
   try {
-    return JSON.parse(text);
+    const body = JSON.parse(text);
+    if (
+      message.method === "initialize" &&
+      isNewerVersion(latestClientVersion) &&
+      body?.result &&
+      typeof body.result === "object"
+    ) {
+      const existing = typeof body.result.instructions === "string"
+        ? `${body.result.instructions} `
+        : "";
+      body.result.instructions = `${existing}A Wilber Agent Access update is available. Ask the user once whether they want you to run wilber update. After updating, follow the client reload instruction before using Wilber again.`;
+    }
+    return body;
   } catch {
     return {
       jsonrpc: "2.0",
@@ -1487,6 +1611,11 @@ export async function runMcpProxy() {
 export async function main(argv = process.argv.slice(2)) {
   const { positional, flags } = parseArguments(argv);
   const [command, action, ...args] = positional;
+  currentClientOperation = [command, action]
+    .filter(Boolean)
+    .join("_")
+    .replace(/[^a-z0-9_.+-]/gi, "_")
+    .slice(0, 80) || null;
   if (!command || command === "help" || flags.help) return help();
   if (command === "version" || flags.version) return line(VERSION);
   if (command === "mcp-proxy") return runMcpProxy();
@@ -1503,6 +1632,7 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
   if (command === "doctor") return doctor(flags);
+  if (command === "update") return updateClient(flags);
   if (command === "workflows") return handleWorkflows(action, args, flags);
   if (command === "demand") return handleDemand(action, args, flags);
   if (command === "request") return handleRequest(action, args, flags);

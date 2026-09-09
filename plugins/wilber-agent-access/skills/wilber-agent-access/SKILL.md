@@ -16,6 +16,10 @@ Use Wilber as a permissioned operating layer from the member's own agent. The Wi
 
 If the connection is not authenticated, run the bundled `wilber auth login` and ask the member to complete the secure browser authorization. The plugin's local MCP proxy and CLI share that one operating-system credential. Run `wilber doctor` to verify persistence before reloading plugins or opening a fresh task. Do not start a separate client-managed MCP login, because it creates a redundant grant and does not repair the local CLI. Never ask the member to copy an OAuth token into chat. Manual personal tokens are a compatibility fallback only.
 
+Keep setup communication short and human. Before opening browser authorization, say that Wilbe sign-in will open and ask the member to sign in with their own Wilbe account. Do not narrate commands, caches, protocols, environment variables, or diagnostic reasoning unless setup fails and the member asks for details. When a new task or reload is required, stop immediately and give only the exact next action.
+
+`wilber doctor` reports whether the installed client is current. If it reports an update, ask for confirmation and run `wilber update`; then follow the client reload instruction. Claude users should enable auto-update once in Plugins > Marketplaces > Wilbe. Codex users can simply ask their agent to update Wilber Agent Access. Never silently modify a member's client configuration or reload a conversation without their knowledge.
+
 ## Choose the efficient interface
 
 - Use the Wilber MCP tools for identity, one-off reads, public-source searches, work submission, status checks, and small structured actions. They connect through the bundled local proxy and the same authorization used by the CLI.

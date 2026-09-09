@@ -11,7 +11,7 @@ claude plugin install wilber-agent-access@wilbe
 
 Or ask Claude in a local Claude Code Desktop task:
 
-> Install Wilber Agent Access from Wilbe's official marketplace at https://github.com/wilbe-developer/wilber-agent-access. Add the marketplace, install `wilber-agent-access@wilbe`, and verify the publisher and version. If Claude says the plugin needs a restart, stop immediately and tell me to restart. In the fresh task, run the bundled `wilber auth login`, open secure browser authorization, and verify the connection with `wilber doctor`. Do not ask me to paste credentials or tokens into chat and do not start a second authorization flow.
+> Install Wilber Agent Access from Wilbe's official marketplace at https://github.com/wilbe-developer/wilber-agent-access. Add the marketplace, install `wilber-agent-access@wilbe`, and verify the publisher and version. Keep setup explanations short and non-technical. If a fresh task is required, stop and tell me only: "Wilber Agent Access is installed. Please open a new task and send: Continue Wilber setup." In the fresh task, open secure Wilbe sign-in, verify the connection with `wilber doctor`, and recommend one useful first task. In Claude, also help me enable auto-update in Plugins > Marketplaces > Wilbe. Never ask me to paste credentials or tokens into chat.
 
 ## Codex CLI
 

@@ -7,7 +7,6 @@
       "name": "wilber-agent-access",
       "source": "./plugins/wilber-agent-access",
       "description": "Work with Wilber's authorised workflows and public-source operating data from your own agent.",
-      "version": "0.6.1",
       "category": "productivity"
     }
   ]
