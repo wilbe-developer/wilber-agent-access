@@ -29,7 +29,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.7.2";
+const VERSION = "0.7.3";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";
@@ -1357,6 +1357,28 @@ async function handleRequest(action, args, flags) {
     }));
     return;
   }
+  if (action === "relationship-context") {
+    const question = String(flags.question || "").trim();
+    const subjects = String(flags.subjects || "")
+      .split("|")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (!question || !subjects.length) {
+      throw new WilberCliError(
+        "Usage: wilber request relationship-context --question <question> --subjects <name|organisation|event> [--campaign <id>]",
+      );
+    }
+    const campaignIds = flags.campaign
+      ? String(flags.campaign).split(",").map((value) => value.trim()).filter(Boolean)
+      : [];
+    jsonOutput(await callTool("wilber_relationship_context_request", {
+      question,
+      subjects,
+      ...(campaignIds.length ? { campaignIds } : {}),
+      ...(flags["client-request-id"] ? { clientRequestId: String(flags["client-request-id"]) } : {}),
+    }));
+    return;
+  }
   if (action === "admin-submit") {
     const workflow = String(flags.workflow || "");
     const objective = String(flags.objective || "");
@@ -1412,7 +1434,7 @@ async function handleRequest(action, args, flags) {
     }));
     return;
   }
-  throw new WilberCliError("Usage: wilber request <submit|admin-submit|status|continue>");
+  throw new WilberCliError("Usage: wilber request <campaign-context|relationship-context|submit|admin-submit|status|continue>");
 }
 
 async function handleMedia(action, args, flags) {
@@ -1594,7 +1616,7 @@ function help() {
   line("  wilber update [--check] [--json]");
   line("  wilber workflows <list|inspect|export|fork|validate|propose>");
   line("  wilber demand <campaigns|campaign|search|person|person-pipeline|campaign-events|source-routes|institutional-routes|institutional-route>");
-  line("  wilber request <campaign-context|submit|admin-submit|status|continue>");
+  line("  wilber request <campaign-context|relationship-context|submit|admin-submit|status|continue>");
   line("  wilber media credentials <install|status>");
 }
 

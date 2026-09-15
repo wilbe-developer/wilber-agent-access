@@ -51,6 +51,14 @@ wilber request campaign-context --question "What happened across the Oxford inst
 
 The Mac mini may use authorised Global Demand, Wilbe platform, Attio and Notion context for that campaign. It cannot change those sources or read unrelated CRM, workspace, inbox, Slack, LP, fund or investment records. Check the returned request with `wilber request status <request-id>`.
 
+Before presenting named contacts or institutional routes as current or outreach-ready, request bounded relationship verification:
+
+```bash
+wilber request relationship-context --question "Who should we contact now, and should we coordinate first?" --subjects "ECRI|Henry Royce Institute" --campaign <campaign-id>
+```
+
+Separate multiple subjects with `|`. The Mac mini checks current Attio context first and may use relevant Jesse work-email, campaign, platform, or Notion evidence only for those named subjects. It returns relationship ownership, prior routing advice, the current contact route, source coverage, and unresolved uncertainty. It cannot change any source or provide broad CRM or mailbox access.
+
 ## Bounded work
 
 ```bash
