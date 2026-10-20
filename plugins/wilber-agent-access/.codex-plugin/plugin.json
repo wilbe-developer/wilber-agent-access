@@ -1,6 +1,6 @@
 {
   "name": "wilber-agent-access",
-  "version": "0.9.0+codex.20261020",
+  "version": "0.10.0+codex.20261020",
   "description": "Work with Wilber's authorised workflows and permitted operating data from your own agent.",
   "author": {
     "name": "Wilbe"

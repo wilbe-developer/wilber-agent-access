@@ -29,7 +29,9 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.9.0";
+import { uploadBuildFile } from "./build-upload.mjs";
+
+const VERSION = "0.10.0";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";
@@ -927,8 +929,24 @@ function requestFailure(status, body, auth) {
   if (status === 401) {
     return new WilberCliError("Wilber could not authenticate this connection. Run wilber auth login --audience founder for a portfolio founder, wilber auth login --audience captain for a Captain, or wilber auth login for a team member.", { code: "not_authenticated", status });
   }
+  const buildDenials={
+    build_file_write_required:"Changing Build attachments also requires file-write access. Check the permissions approved in Profile Settings > AI access; task editing alone does not grant it.",
+    build_start_required:"Start your Build programme in the platform before editing tasks. This connection cannot enrol you or send reminders automatically.",
+    build_task_locked:"This Build task is locked. Open the platform to check its current availability. Do not retry or bypass the lock.",
+    public_sharing_approval_required:"This task is in a public data room. Explain that the material will be visible there and obtain the member's approval before adding --acknowledge-public-sharing or acknowledge_public_sharing: true.",
+    upload_expired:"This upload reservation expired before attachment. Check its status and the current task, then prepare a new authorised upload with a fresh revision and request key."
+  };
+  if (status === 403 && buildDenials[body?.error]) return new WilberCliError(buildDenials[body.error],{code:body.error,status});
+  if (status === 400 && body?.error === "invalid_request") return new WilberCliError("Check the operation fields, task targets, declared value types and current edit context. Do not retry unchanged invalid arguments or invent missing facts.",{code:"invalid_request",status});
+  if (status === 413) return new WilberCliError("The file exceeds the task or platform size limit. Check the target's upload rules and use a smaller authorised file.",{code:"file_too_large",status});
   if (status === 403) {
     return new WilberCliError("This connection cannot perform that operation with its current permissions. Check the access approved in Profile Settings > AI access. Reconnecting does not grant additional permissions.", { code: "insufficient_scope", status });
+  }
+  if (status === 409 && body?.error === "revision_conflict") {
+    return new WilberCliError("Your Build work changed. Read the task again, compare the current answer with your intended change, and reconcile it with the member. Use the new revision and a new request key only for the revised action; never overwrite newer work.", {code:"revision_conflict",status});
+  }
+  if (status === 409 && body?.error === "upload_pending") {
+    return new WilberCliError("The file has not been attached. Resume the same upload with the original file and request ID, then check the saved receipt.", {code:"upload_pending",status});
   }
   if (status === 409) {
     return new WilberCliError("This request key was already used with different content. Retry an uncertain submission with its original key and unchanged content. Use a new key only for a deliberately new submission.", { code: "idempotency_conflict", status });
@@ -1705,6 +1723,8 @@ function help() {
   line("  wilber demand <campaigns|campaign|search|person|person-pipeline|campaign-events|source-routes|institutional-routes|institutional-route>");
   line("  wilber request <campaign-context|relationship-context|submit|admin-submit|status|continue>");
   line("  wilber media credentials <install|status>");
+  line("  wilber build upload <local-file> --task-id <id> --program-version-id <id> --expected-revision <revision> --step-id <step> --request-id <id> --reviewed");
+  line("  wilber build status <upload-id> [--json]");
   line("\nPortfolio founders: wilber auth login --audience founder");
   line("Captains: wilber auth login --audience captain");
   line("Team members: wilber auth login");
@@ -1742,7 +1762,9 @@ async function proxyRequest(message) {
   const text = await response.text();
   if (!response.ok) {
     // Do not expose arbitrary response payloads through the MCP transport.
-    const error = requestFailure(response.status, null, auth);
+    let failureBody=null;
+    try { const parsed=JSON.parse(text); if(["revision_conflict","upload_pending","invalid_request","build_file_write_required","build_start_required","build_task_locked","public_sharing_approval_required","upload_expired"].includes(parsed?.error))failureBody={error:parsed.error}; } catch {}
+    const error = requestFailure(response.status, failureBody, auth);
     throw error;
   }
   if (!Object.hasOwn(message, "id")) return null;
@@ -1831,6 +1853,16 @@ export async function main(argv = process.argv.slice(2)) {
   if (command === "demand") return handleDemand(action, args, flags);
   if (command === "request") return handleRequest(action, args, flags);
   if (command === "media") return handleMedia(action, args, flags);
+  if (command === "build" && action === "upload") {
+    const receipt=await uploadBuildFile(args[0],flags,{endpoint,configDirectory,writePrivateJson,callTool,resolveToken,requestFailure});
+    if(flags.json)jsonOutput(receipt);else line(`File saved to your Build task. Receipt: ${receipt.upload_id}`);
+    return;
+  }
+  if (command === "build" && action === "status") {
+    const result=await callTool("wilber_build_file_status",{upload_id:args[0]});
+    if(flags.json)jsonOutput(result);else line(result.status==="committed"?"File saved and attached to the task.":"Upload prepared; the file has not been attached. Resume the original upload command.");
+    return;
+  }
   throw new WilberCliError(`Unknown command: ${command}. Run \`wilber help\`.`);
 }
 
