@@ -29,7 +29,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.8.1";
+const VERSION = "0.9.0";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";

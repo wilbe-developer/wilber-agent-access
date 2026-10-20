@@ -46,3 +46,9 @@ The team login above opens Wilbe in the browser and stores the resulting OAuth g
 ## Versioning and provenance
 
 Wilbe publishes versioned Git history and release tags in this repository. The authenticated ZIP available in Wilbe Profile Settings is a fallback build of the same source and includes `RELEASE.json` with the originating platform commit.
+
+### Platform tools
+
+With explicit connection approval, founders and Captains can read their own profile and Build tasks/saved answers, search visible member profiles, and inspect published event feeds with calendar links. Build access follows the platform dashboard entitlement and current programme version. These tools do not edit profiles, save task answers, enrol anyone, send messages or register for events.
+
+Wiki resources include source links and opaque attachment references. Entitled private PDFs can be read through a five-minute link; arbitrary storage paths and external URLs are not accepted. New platform permissions require fresh approval, so existing connections keep their current access.
