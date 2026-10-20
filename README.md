@@ -20,14 +20,14 @@ codex plugin marketplace add wilbe-developer/wilber-agent-access
 codex plugin add wilber-agent-access@wilbe
 ```
 
-After installation, open a fresh task when Codex requires one. In that task, resolve the plugin's source path and run its bundled `bin/wilber auth login`. Codex opens Wilbe in the browser. Sign in with your own Wilbe account and approve the connection, then run `bin/wilber doctor`.
+After installation, open a fresh task when Codex requires one. In that task, resolve the plugin's source path and run its bundled command for your role: `bin/wilber auth login --audience founder` for a portfolio founder, `bin/wilber auth login --audience captain` for a Captain, or `bin/wilber auth login` for a team member. Codex opens Wilbe in the browser. Sign in with your own Wilbe account and approve the connection, then run `bin/wilber doctor`.
 
 ## Verify Wilber
 
 Start a new task and ask:
 
 ```text
-Show my Wilber identity, projects, permissions and available workflows.
+Show my Wilber identity, permissions and available tools. Help me choose one useful first task within that access.
 ```
 
 The plugin shares one browser-approved credential between its MCP tools and CLI. It is stored privately on the device and is never copied into chat.
@@ -41,7 +41,7 @@ wilber auth login
 wilber doctor
 ```
 
-That login opens Wilbe in the browser and stores the resulting OAuth grant in the operating system credential store. The local MCP proxy reads the same grant. It does not ask for a token. `wilber auth login --manual` remains available only as an explicit compatibility fallback for clients that cannot complete browser authorization.
+The team login above opens Wilbe in the browser and stores the resulting OAuth grant in the operating system credential store. The local MCP proxy reads the same grant. It does not ask for a token. `wilber auth login --manual` remains available only as an explicit compatibility fallback for clients that cannot complete browser authorization.
 
 ## Versioning and provenance
 

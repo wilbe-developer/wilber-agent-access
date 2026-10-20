@@ -14,7 +14,7 @@ wilber doctor
 
 `wilber auth login` opens Wilbe in the browser and stores the OAuth grant in macOS Keychain when available. `WILBER_ACCESS_TOKEN` is supported for temporary and automated sessions. Never pass a token as a command-line argument. Use `wilber auth login --manual` only when browser authorization is unavailable and an administrator explicitly approves the compatibility fallback.
 
-For founders and Captains, select the matching `--audience` command. The browser shows the signed-in identity and a permission checklist. Approval creates a narrow credential valid for 30 days, bound to the configured Wilber endpoint. The local MCP proxy shares it. Use the MCP tools returned for that connection rather than team-only CLI workflow commands. Revoke access in Profile Settings > AI access; `auth logout` only removes the device's stored credential.
+For founders and Captains, select the matching `--audience` command. Keep the task running while Wilber checks approval automatically. If the task was interrupted or approval timed out, run the same login command again to start a new request. Use `wilber auth login --help` for the role choices and recovery steps. The browser shows the signed-in identity and a permission checklist. Approval creates a narrow credential valid for 30 days, bound to the configured Wilber endpoint. The local MCP proxy shares it. Use the MCP tools returned for that connection rather than team-only CLI workflow commands. Revoke access in Profile Settings > AI access; `auth logout` only removes the device's stored credential.
 
 ## Workflows
 

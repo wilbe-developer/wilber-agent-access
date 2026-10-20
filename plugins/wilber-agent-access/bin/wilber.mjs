@@ -29,7 +29,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.8.0";
+const VERSION = "0.8.1";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";
@@ -448,7 +448,7 @@ function readEncryptedCredential(keychainValue) {
 }
 
 function inspectMacKeychainCredential() {
-  if (process.platform !== "darwin") {
+  if (process.platform !== "darwin" || process.env.WILBER_DISABLE_KEYCHAIN === "1") {
     return { credential: null, state: "unavailable" };
   }
   const result = spawnSync(
@@ -493,7 +493,7 @@ function credentialsMatch(expected, actual) {
 }
 
 function deleteMacKeychainCredential() {
-  if (process.platform !== "darwin") return;
+  if (process.platform !== "darwin" || process.env.WILBER_DISABLE_KEYCHAIN === "1") return;
   spawnSync(
     "security",
     ["delete-generic-password", "-a", keychainAccount(), "-s", keychainService()],
@@ -653,7 +653,7 @@ export async function resolveToken({ forceRefresh = false } = {}) {
     ) {
       credential = await refreshOauthCredential(credential);
     }
-    return { token: credential.accessToken, source, kind: credential.kind };
+    return { token: credential.accessToken, source, kind: credential.kind, audience: credential.audience };
   }
   if (keychain.state === "empty" || keychain.state === "invalid") {
     throw new WilberCliError(
@@ -668,7 +668,7 @@ export async function resolveToken({ forceRefresh = false } = {}) {
     );
   }
   throw new WilberCliError(
-    "Wilber is not connected. Run `wilber auth login` to authorize this device in your browser.",
+    "Wilber is not connected. Run `wilber auth login --audience founder` for a portfolio founder, `wilber auth login --audience captain` for a Captain, or `wilber auth login` for a team member.",
     { code: "not_authenticated" },
   );
 }
@@ -883,26 +883,33 @@ export async function browserScopedLogin(audience) {
   const apiUrl = new URL("/api/wilber/agent-connection", resource.origin);
   const verifier = randomBytes(48).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
-  const request = await fetchJson(apiUrl, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"start",audience,label:`${detectClientHost()} on ${os.hostname()}`.slice(0,100),code_challenge:challenge})}, "Could not start the connection");
+  const request = await fetchJson(apiUrl, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"start",audience,label:`${detectClientHost()} on ${os.hostname()}`.slice(0,100),code_challenge:challenge})}, "Starting the connection").catch((error) => {
+    if (error instanceof WilberCliError) throw new WilberCliError(`The connection request could not start. Run wilber auth login --audience ${audience} to try again.`, { code: error.code, status: error.status });
+    throw error;
+  });
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(request.request_id || "")) throw new WilberCliError("Wilber returned an invalid connection request.");
   const approval = new URL("/agent-access", resource.origin);
   approval.searchParams.set("request",request.request_id);
   line("Wilbe sign-in will open. Sign in with your own account and review this connection.");
   line(approval.toString());
   openBrowser(approval.toString());
+  line("Waiting for your approval in Wilbe. Keep this task running; the connection will complete automatically.");
   const deadline = Date.now() + Math.min(Number(process.env.WILBER_OAUTH_TIMEOUT_MS || 600000),600000);
   while (Date.now() < deadline) {
-    const result = await fetchJson(apiUrl,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"exchange",request_id:request.request_id,code_verifier:verifier})},"Could not complete the connection");
+    const result = await fetchJson(apiUrl,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"exchange",request_id:request.request_id,code_verifier:verifier})},"Completing the connection").catch((error) => {
+      if (error instanceof WilberCliError) throw new WilberCliError(`This connection request could not be approved or has expired. Run wilber auth login --audience ${audience} to start again. If Wilbe says this account is not eligible, contact Wilbe.`, { code: error.code, status: error.status });
+      throw error;
+    });
     if (result.status === "pending") { await sleep(1500); continue; }
     if (!/^wb_agent_[A-Za-z0-9_-]{43,128}$/.test(result.access_token || "") || result.audience !== audience || !Number.isFinite(Date.parse(result.expires_at))) {
-      throw new WilberCliError("The connection was not approved or has expired.");
+      throw new WilberCliError(`The connection was not approved or has expired. Run wilber auth login --audience ${audience} to start again.`);
     }
     // Readback before storage proves the server recognizes this exact scope.
     const profile = await callTool("wilber_access_get",{},result.access_token);
     const storedIn = await saveCredential({kind:"scoped",accessToken:result.access_token,audience,connectionId:result.connection_id,expiresAt:result.expires_at,endpoint:endpoint()});
     return {profile,storedIn};
   }
-  throw new WilberCliError("Connection approval timed out. Start a new connection request.",{code:"connection_timeout"});
+  throw new WilberCliError(`Connection approval timed out. Run wilber auth login --audience ${audience} to start a new connection request.`,{code:"connection_timeout"});
 }
 
 async function deleteStoredToken() {
@@ -911,6 +918,33 @@ async function deleteStoredToken() {
     rm(credentialPath(), { force: true }),
     rm(encryptedCredentialPath(), { force: true }),
   ]);
+}
+
+function requestFailure(status, body, auth) {
+  if (status === 401 && auth.kind === "scoped") {
+    return new WilberCliError(`Your Wilber connection is no longer active. Run wilber auth login --audience ${auth.audience} to reconnect.`, { code: "not_authenticated", status });
+  }
+  if (status === 401) {
+    return new WilberCliError("Wilber could not authenticate this connection. Run wilber auth login --audience founder for a portfolio founder, wilber auth login --audience captain for a Captain, or wilber auth login for a team member.", { code: "not_authenticated", status });
+  }
+  if (status === 403) {
+    return new WilberCliError("This connection cannot perform that operation with its current permissions. Check the access approved in Profile Settings > AI access. Reconnecting does not grant additional permissions.", { code: "insufficient_scope", status });
+  }
+  if (status === 409) {
+    return new WilberCliError("This request key was already used with different content. Retry an uncertain submission with its original key and unchanged content. Use a new key only for a deliberately new submission.", { code: "idempotency_conflict", status });
+  }
+  if (status >= 500) {
+    return new WilberCliError("Wilber could not confirm this operation. Preserve the same request key and unchanged content before retrying.", { code: "service_unavailable", status });
+  }
+  // Team CLI errors retain the established server's sanitized guidance.
+  return new WilberCliError(
+    body?.error?.message || body?.message || (typeof body?.error === "string" ? body.error : null) || `Wilber request failed (${status}).`,
+    { code: body?.code || "http_error", status },
+  );
+}
+
+function proxyError(message, code, text) {
+  return { jsonrpc: "2.0", id: message.id, error: { code, message: text } };
 }
 
 async function rpcRequest(method, params = {}, suppliedToken = null, options = {}) {
@@ -946,10 +980,7 @@ async function rpcRequest(method, params = {}, suppliedToken = null, options = {
     });
   }
   if (!response.ok) {
-    throw new WilberCliError(
-      body?.error?.message || body?.message || body?.error || `Wilber request failed (${response.status}).`,
-      { code: body?.code || "http_error", status: response.status },
-    );
+    throw requestFailure(response.status, body, initial);
   }
   if (body?.error) {
     throw new WilberCliError(body.error.message || "Wilber tool failed.", {
@@ -1650,6 +1681,18 @@ async function updateClient(flags) {
   }
 }
 
+function authHelp() {
+  line(`Wilber Agent Access ${VERSION} authentication\n`);
+  line("Portfolio founder: wilber auth login --audience founder");
+  line("Captain: wilber auth login --audience captain");
+  line("Team member: wilber auth login");
+  line("Sign in with your own Wilbe account and review the permission checklist.");
+  line("Keep this task running while approval completes; Wilber checks automatically.");
+  line("If approval times out or this task was interrupted, run the matching login command again.");
+  line("Then run wilber whoami and wilber doctor to verify the saved connection.");
+  line("wilber auth logout removes this device's copy; revoke the connection in Profile Settings > AI access.");
+}
+
 function help() {
   line(`Wilber Agent Access ${VERSION}\n`);
   line("Usage:");
@@ -1662,6 +1705,11 @@ function help() {
   line("  wilber demand <campaigns|campaign|search|person|person-pipeline|campaign-events|source-routes|institutional-routes|institutional-route>");
   line("  wilber request <campaign-context|relationship-context|submit|admin-submit|status|continue>");
   line("  wilber media credentials <install|status>");
+  line("\nPortfolio founders: wilber auth login --audience founder");
+  line("Captains: wilber auth login --audience captain");
+  line("Team members: wilber auth login");
+  line("Founder and Captain connections use only their returned MCP tools; team workflow commands may be unavailable.");
+  line("Run wilber auth login --help for approval and recovery steps.");
 }
 
 async function proxyRequest(message) {
@@ -1692,6 +1740,12 @@ async function proxyRequest(message) {
   }
   rememberLatestVersion(response);
   const text = await response.text();
+  if (!response.ok) {
+    // Do not expose arbitrary response payloads through the MCP transport.
+    const error = requestFailure(response.status, null, auth);
+    throw error;
+  }
+  if (!Object.hasOwn(message, "id")) return null;
   if (!text) return null;
   try {
     const body = JSON.parse(text);
@@ -1723,16 +1777,26 @@ export async function runMcpProxy() {
     let message;
     try {
       message = JSON.parse(rawLine);
+    } catch {
+      process.stdout.write(`${JSON.stringify(proxyError({ id: null }, -32700, "Invalid JSON."))}\n`);
+      continue;
+    }
+    if (!message || typeof message !== "object" || Array.isArray(message) ||
+        message.jsonrpc !== "2.0" || typeof message.method !== "string" ||
+        (Object.hasOwn(message, "id") && message.id !== null && typeof message.id !== "string" && typeof message.id !== "number")) {
+      process.stdout.write(`${JSON.stringify(proxyError({ id: null }, -32600, "Invalid JSON-RPC request."))}\n`);
+      continue;
+    }
+    const isNotification = !Object.hasOwn(message, "id");
+    try {
       const response = await proxyRequest(message);
-      if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
+      if (!isNotification && response) process.stdout.write(`${JSON.stringify(response)}\n`);
     } catch (error) {
-      process.stdout.write(
-        `${JSON.stringify({
-          jsonrpc: "2.0",
-          id: message?.id ?? null,
-          error: { code: -32700, message: error instanceof Error ? error.message : "Wilber proxy error" },
-        })}\n`,
-      );
+      if (isNotification) continue;
+      const text = error instanceof WilberCliError
+        ? error.message
+        : "Wilber could not be reached. Check your connection and try again. Preserve the same request key and unchanged content after an uncertain submission.";
+      process.stdout.write(`${JSON.stringify(proxyError(message, -32000, text))}\n`);
     }
   }
 }
@@ -1745,6 +1809,7 @@ export async function main(argv = process.argv.slice(2)) {
     .join("_")
     .replace(/[^a-z0-9_.+-]/gi, "_")
     .slice(0, 80) || null;
+  if (command === "auth" && flags.help) return authHelp();
   if (!command || command === "help" || flags.help) return help();
   if (command === "version" || flags.version) return line(VERSION);
   if (command === "mcp-proxy") return runMcpProxy();
