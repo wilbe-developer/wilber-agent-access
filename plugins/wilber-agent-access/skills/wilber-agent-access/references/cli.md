@@ -100,3 +100,20 @@ set -a; source ~/.config/wilber/media/credentials.env; set +a
 ```
 
 YouTube OAuth files are installed under `~/.wilbe/youtube/`. Their scopes are limited to YouTube and read-only YouTube Analytics.
+
+## Private files and account exports
+
+Use Node.js 22 or newer for private file transfer.
+
+Use the preparation tool returned by your current connection to obtain the exact task, conversation, revision and instruction fields. Put those reviewed fields in a local JSON file, then run:
+
+```sh
+wilber files upload ./material.pdf --prepare-tool wilber_build_material_prepare --arguments-file ./reviewed-target.json --request-id <stable-uuid> --reviewed
+wilber files upload ./attachment.pdf --prepare-tool wilber_community_file_prepare --arguments-file ./reviewed-message-target.json --request-id <stable-uuid> --reviewed
+wilber files upload ./demo.mp4 --prepare-tool wilber_community_forum_file_prepare --arguments-file ./reviewed-forum-target.json --request-id <stable-uuid> --reviewed
+wilber account export --output ./private-account-export.json
+```
+
+The transfer derives the file's name, MIME type, byte count and hash, and handles its narrow storage capability privately. Use `--mime-type` when a file's type cannot be inferred. Never paste a signed upload URL, token or base64 file into chat. A verified upload is ready to attach; it does not send a message or publish a post. Use its upload ID in the separately authorised message or forum tool. Forum media retains the platform's public storage and needs an explicit public-sharing acknowledgement before transfer.
+
+Resume an interrupted transfer with its unchanged file, target arguments and request ID. A changed action needs a deliberately new ID. Account exports stop if the underlying data changes while paging and remove incomplete files. Existing output files are preserved unless `--overwrite` is explicitly supplied.

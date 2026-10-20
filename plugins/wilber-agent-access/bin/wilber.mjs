@@ -30,8 +30,10 @@ import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
 import { uploadBuildFile } from "./build-upload.mjs";
+import { transferScopedFile } from "./file-transfer.mjs";
+import { exportScopedAccount } from "./account-export.mjs";
 
-const VERSION = "0.10.0";
+const VERSION = "0.11.0";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";
@@ -1724,6 +1726,8 @@ function help() {
   line("  wilber request <campaign-context|relationship-context|submit|admin-submit|status|continue>");
   line("  wilber media credentials <install|status>");
   line("  wilber build upload <local-file> --task-id <id> --program-version-id <id> --expected-revision <revision> --step-id <step> --request-id <id> --reviewed");
+  line("  wilber files upload <local-file> --prepare-tool <tool> --arguments-file <reviewed-target.json> --request-id <uuid> --reviewed");
+  line("  wilber account export --output <private-local.json>");
   line("  wilber build status <upload-id> [--json]");
   line("\nPortfolio founders: wilber auth login --audience founder");
   line("Captains: wilber auth login --audience captain");
@@ -1856,6 +1860,16 @@ export async function main(argv = process.argv.slice(2)) {
   if (command === "build" && action === "upload") {
     const receipt=await uploadBuildFile(args[0],flags,{endpoint,configDirectory,writePrivateJson,callTool,resolveToken,requestFailure});
     if(flags.json)jsonOutput(receipt);else line(`File saved to your Build task. Receipt: ${receipt.upload_id}`);
+    return;
+  }
+  if (command === "files" && action === "upload") {
+    const receipt=await transferScopedFile(args[0],flags,{endpoint,configDirectory,writePrivateJson,callTool,resolveToken,requestFailure});
+    if(flags.json)jsonOutput(receipt);else line(receipt.status==='verified'?`File bytes verified. The message has not been sent; use upload ${receipt.upload_id} with the authorised message.`:`File transfer saved. Receipt: ${receipt.upload_id}`);
+    return;
+  }
+  if (command === "account" && action === "export") {
+    const result=await exportScopedAccount(flags,{endpoint,callTool,resolveToken,requestFailure});
+    if(flags.json)jsonOutput(result);else line(`Your account export was saved privately to ${result.path}.`);
     return;
   }
   if (command === "build" && action === "status") {
