@@ -30,7 +30,9 @@ Start a new task and ask:
 Show my Wilber identity, projects, permissions and available workflows.
 ```
 
-The plugin uses one browser OAuth grant for both its MCP tools and CLI. The grant is stored in the operating system credential store and is never copied into chat.
+The plugin shares one browser-approved credential between its MCP tools and CLI. It is stored privately on the device and is never copied into chat.
+
+Portfolio founders run `wilber auth login --audience founder`; Captains run `wilber auth login --audience captain`. Sign in with your own Wilbe account, review the permission checklist and approve. The resulting connection lasts 30 days and is limited by both your selected permissions and your current Wilbe access. Revoke it at any time in Profile Settings > AI access. Reviewed submissions enter Wilbe's review queue before any CRM merge or outreach.
 
 The bundled `wilber` CLI remains available for complete workflow exports and local workflow editing. It uses the same authorization as the plugin connection:
 

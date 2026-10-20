@@ -29,7 +29,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.7.3";
+const VERSION = "0.8.0";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";
@@ -391,6 +391,8 @@ function parseStoredCredential(value) {
     }
   }
   if (typeof value !== "object") return null;
+  if (value.kind === "scoped" && /^wb_agent_[A-Za-z0-9_-]{43,128}$/.test(value.accessToken || "") &&
+      ["founder", "captain"].includes(value.audience) && typeof value.endpoint === "string" && Number.isFinite(Date.parse(value.expiresAt))) return value;
   if (typeof value.token === "string") {
     return { kind: "personal_token", accessToken: value.token };
   }
@@ -639,6 +641,12 @@ export async function resolveToken({ forceRefresh = false } = {}) {
     source = credentialPath();
   }
   if (credential) {
+    if (credential.kind === "scoped" && credential.endpoint !== endpoint()) {
+      throw new WilberCliError("This connection belongs to a different Wilber endpoint. Reconnect for the selected endpoint.", {code:"connection_resource_mismatch"});
+    }
+    if (credential.kind === "scoped" && Date.parse(credential.expiresAt) <= Date.now()) {
+      throw new WilberCliError(`Your connection has expired. Run wilber auth login --audience ${credential.audience} to reconnect.`, {code:"connection_expired",status:401});
+    }
     if (
       credential.kind === "oauth" &&
       (forceRefresh || !credential.expiresAt || credential.expiresAt <= Date.now() + 60_000)
@@ -864,6 +872,37 @@ async function browserOauthLogin() {
     callback.close();
     throw error;
   }
+}
+
+export async function browserScopedLogin(audience) {
+  if (!["founder", "captain"].includes(audience)) throw new WilberCliError("Choose --audience founder or --audience captain.");
+  const resource = new URL(endpoint());
+  if (resource.protocol !== "https:" && !(resource.protocol === "http:" && ["localhost","127.0.0.1","[::1]"].includes(resource.hostname))) {
+    throw new WilberCliError("Wilber connections require HTTPS.");
+  }
+  const apiUrl = new URL("/api/wilber/agent-connection", resource.origin);
+  const verifier = randomBytes(48).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const request = await fetchJson(apiUrl, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"start",audience,label:`${detectClientHost()} on ${os.hostname()}`.slice(0,100),code_challenge:challenge})}, "Could not start the connection");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(request.request_id || "")) throw new WilberCliError("Wilber returned an invalid connection request.");
+  const approval = new URL("/agent-access", resource.origin);
+  approval.searchParams.set("request",request.request_id);
+  line("Wilbe sign-in will open. Sign in with your own account and review this connection.");
+  line(approval.toString());
+  openBrowser(approval.toString());
+  const deadline = Date.now() + Math.min(Number(process.env.WILBER_OAUTH_TIMEOUT_MS || 600000),600000);
+  while (Date.now() < deadline) {
+    const result = await fetchJson(apiUrl,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"exchange",request_id:request.request_id,code_verifier:verifier})},"Could not complete the connection");
+    if (result.status === "pending") { await sleep(1500); continue; }
+    if (!/^wb_agent_[A-Za-z0-9_-]{43,128}$/.test(result.access_token || "") || result.audience !== audience || !Number.isFinite(Date.parse(result.expires_at))) {
+      throw new WilberCliError("The connection was not approved or has expired.");
+    }
+    // Readback before storage proves the server recognizes this exact scope.
+    const profile = await callTool("wilber_access_get",{},result.access_token);
+    const storedIn = await saveCredential({kind:"scoped",accessToken:result.access_token,audience,connectionId:result.connection_id,expiresAt:result.expires_at,endpoint:endpoint()});
+    return {profile,storedIn};
+  }
+  throw new WilberCliError("Connection approval timed out. Start a new connection request.",{code:"connection_timeout"});
 }
 
 async function deleteStoredToken() {
@@ -1125,6 +1164,7 @@ function printWorkflowList(listing) {
 
 async function handleAuth(action, flags) {
   if (action === "login") {
+    if (flags.audience && !["founder","captain"].includes(flags.audience)) throw new WilberCliError("Choose --audience founder or --audience captain.");
     if (flags.token) {
       throw new WilberCliError("Do not pass access tokens as command-line arguments. Run `wilber auth login` for browser authorization.");
     }
@@ -1140,6 +1180,9 @@ async function handleAuth(action, flags) {
       try {
         const existing = await resolveToken();
         const profile = await callTool("wilber_access_get", {}, existing.token);
+        if (flags.audience && profile.audience !== flags.audience) {
+          throw new WilberCliError("This device already has a different connection. Run wilber auth logout before choosing another audience.", {code:"connection_audience_mismatch"});
+        }
         line(`Already connected as ${profile.identity.displayName || profile.identity.email}.`);
         line("Run `wilber auth logout` first if you need to authorize a different Wilbe account.");
         return;
@@ -1153,7 +1196,7 @@ async function handleAuth(action, flags) {
         }
       }
     }
-    const { profile, storedIn } = await browserOauthLogin();
+    const { profile, storedIn } = flags.audience ? await browserScopedLogin(flags.audience) : await browserOauthLogin();
     line(`Connected as ${profile.identity.displayName || profile.identity.email}.`);
     line(`Browser authorization stored in ${storedIn}.`);
     return;
@@ -1560,7 +1603,7 @@ async function doctor(flags) {
     } else {
       line(`Version: ${VERSION} (current)`);
     }
-    line("External effects: disabled");
+    line(profile.audience ? "Submissions: limited to approved connection permissions" : "External effects: disabled");
   }
 }
 
@@ -1611,6 +1654,7 @@ function help() {
   line(`Wilber Agent Access ${VERSION}\n`);
   line("Usage:");
   line("  wilber auth <login|status|logout>  Browser authorization by default");
+  line("  wilber auth login --audience founder|captain  Approve a scoped personal-agent connection");
   line("  wilber whoami [--json]");
   line("  wilber doctor [--json]");
   line("  wilber update [--check] [--json]");
@@ -1710,9 +1754,9 @@ export async function main(argv = process.argv.slice(2)) {
     if (flags.json) jsonOutput(profile);
     else {
       line(`${profile.identity.displayName || profile.identity.email} (${profile.identity.role})`);
-      line(`Projects: ${profile.projectIds.length}`);
+      if (Array.isArray(profile.projectIds)) line(`Projects: ${profile.projectIds.length}`);
       line(`Permissions: ${profile.permissions.join(", ")}`);
-      line("External effects: disabled");
+      line(profile.audience ? "Submissions: limited to approved connection permissions" : "External effects: disabled");
     }
     return;
   }
