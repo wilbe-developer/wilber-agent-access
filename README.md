@@ -1,5 +1,7 @@
 # Wilber Agent Access
 
+Current release: [Wilber Agent Access 0.11.0](https://github.com/wilbe-developer/wilber-agent-access/releases/tag/v0.11.0), for founders, Captains and team members using Claude Code or Codex.
+
 This is the official Wilber Agent Access marketplace. It installs the Wilber skill, CLI, and secure live connection in a supported personal agent client. The repository contains no Wilber credentials, workflow data, or access authority.
 
 ## Install with Claude Code
@@ -44,6 +46,10 @@ wilber doctor
 The team login above opens Wilbe in the browser and stores the resulting OAuth grant in the operating system credential store. The local MCP proxy reads the same grant. It does not ask for a token. `wilber auth login --manual` remains available only as an explicit compatibility fallback for clients that cannot complete browser authorization.
 
 ## Versioning and provenance
+
+The current CLI and Claude plugin version is `0.11.0`. The Codex plugin reports `0.11.0+codex.20261020`; the suffix identifies its Codex build of the same release. Both marketplace catalogs install the plugin from `plugins/wilber-agent-access`.
+
+GitHub shows the last commit message beside each folder. An older release number beside `.agents/plugins` or `.claude-plugin` records when that catalog last changed. Check the plugin manifests and [release notes](https://github.com/wilbe-developer/wilber-agent-access/releases/latest) for the current version.
 
 Wilbe publishes versioned Git history and release tags in this repository. The authenticated ZIP available in Wilbe Profile Settings is a fallback build of the same source and includes `RELEASE.json` with the originating platform commit.
 

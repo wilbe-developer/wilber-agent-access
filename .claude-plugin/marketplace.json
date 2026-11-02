@@ -1,7 +1,7 @@
 {
   "name": "wilbe",
   "owner": { "name": "Wilbe" },
-  "metadata": { "description": "Wilbe team agent plugins" },
+  "metadata": { "description": "Wilbe agent plugins for founders, Captains and team members" },
   "plugins": [
     {
       "name": "wilber-agent-access",
