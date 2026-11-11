@@ -33,7 +33,7 @@ import { uploadBuildFile } from "./build-upload.mjs";
 import { transferScopedFile } from "./file-transfer.mjs";
 import { exportScopedAccount } from "./account-export.mjs";
 
-const VERSION = "0.11.1";
+const VERSION = "0.11.2";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";

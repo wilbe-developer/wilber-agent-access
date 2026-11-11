@@ -1,6 +1,6 @@
 # Wilber Agent Access
 
-Current release: [Wilber Agent Access 0.11.1](https://github.com/wilbe-developer/wilber-agent-access/releases/tag/v0.11.1), for founders, Captains and team members using Claude Code or Codex.
+Current release: [Wilber Agent Access 0.11.2](https://github.com/wilbe-developer/wilber-agent-access/releases/tag/v0.11.2), for founders, Captains and team members using Claude Code or Codex.
 
 This is the official Wilber Agent Access marketplace. It installs the Wilber skill, CLI, and secure live connection in a supported personal agent client. The repository contains no Wilber credentials, workflow data, or access authority.
 
@@ -17,7 +17,7 @@ Or ask Claude in a local Claude Code Desktop task:
 
 ## Windows and updating Claude Code
 
-Version 0.11.1 starts the Claude connector directly with Node.js, avoiding the Unix shell launcher that could fail on Windows. Node.js 22 or later must be available to Claude. If you just installed Node.js, restart Claude so it picks up the updated PATH.
+Version 0.11.1 and later start the Claude connector directly with Node.js, avoiding the Unix shell launcher that could fail on Windows. Node.js 22 or later must be available to Claude. If you just installed Node.js, restart Claude so it picks up the updated PATH.
 
 To update an existing installation, ask your Claude agent to run:
 
@@ -61,11 +61,23 @@ The team login above opens Wilbe in the browser and stores the resulting OAuth g
 
 ## Versioning and provenance
 
-The current CLI and Claude plugin version is `0.11.1`. The Codex plugin reports `0.11.1+codex.20261111`; the suffix identifies its Codex build of the same release. Both marketplace catalogs install the plugin from `plugins/wilber-agent-access`.
+The current CLI and Claude plugin version is `0.11.2`. The Codex plugin reports `0.11.2+codex.20261111`; the suffix identifies its Codex build of the same release. Both marketplace catalogs install the plugin from `plugins/wilber-agent-access`.
 
 GitHub shows the last commit message beside each folder. An older release number beside `.agents/plugins` or `.claude-plugin` records when that catalog last changed. Check the plugin manifests and [release notes](https://github.com/wilbe-developer/wilber-agent-access/releases/latest) for the current version.
 
 Wilbe publishes versioned Git history and release tags in this repository. The authenticated ZIP available in Wilbe Profile Settings is a fallback build of the same source and includes `RELEASE.json` with the originating platform commit.
+
+### Captain networking and sourcing
+
+Wilbe already runs central online prospecting. Captains add local knowledge and relationships. Ask your agent to help with permitted platform work, such as:
+
+> Turn my notes from yesterday's lab visit into proposed private CRM contacts, updates and follow-ups. Show me what you would save before making changes.
+
+Public research can help find local inroads too:
+
+> Help me find potential founder teams in quantum technology around Paris. Group people from the same team, show the evidence and uncertainty, and check the prospecting and relationship context available to me before suggesting who to approach. Let me choose which contacts to save.
+
+The agent should surface known holds, previous outreach and coordination needs. Limited or unavailable searches leave Wilbe context unknown. A private CRM save, sharing a reviewed copy with Wilbe and contacting someone are separate actions.
 
 ### Platform tools
 

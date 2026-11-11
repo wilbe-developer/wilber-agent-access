@@ -1,6 +1,6 @@
 ---
 name: wilber-agent-access
-description: Use when a Wilbe founder, Captain or team member wants to use their permitted Wilbe resources, submit reviewed contributions, or work with authorised Wilber workflows from their own agent.
+description: Help Wilbe founders, Captains and team members use their permitted Wilbe resources and workflows, including Captain founder sourcing, private CRM work and reviewed contributions from their own agent.
 ---
 
 # Wilber Agent Access
@@ -15,6 +15,10 @@ Use Wilber as a permissioned operating layer from the member's own agent. The Wi
 4. Never print, paste, log, commit, summarize, or expose Wilber credentials or OAuth tokens. When the member has `media.credentials.read`, use only `wilber media credentials install`; its encrypted handoff installs approved credentials directly on the device without returning plaintext through MCP or the conversation.
 
 If the connection is not authenticated, use `wilber auth login --audience founder` for a portfolio founder or `wilber auth login --audience captain` for a Captain. Ask which applies when unclear. Team members keep `wilber auth login`. The founder and Captain flow opens Wilbe sign-in and a permission checklist, then stores a narrow 30-day connection credential. It does not give this agent a general Wilbe user session. The plugin's local MCP proxy and CLI share that one operating-system credential. Run `wilber doctor` to verify persistence before reloading plugins or opening a fresh task. Do not start a separate client-managed MCP login, because it creates a redundant grant and does not repair the local CLI. Never ask the member to copy credentials into chat. Manual personal tokens are a compatibility fallback only for authorised team members.
+
+## Help a Captain get useful work done
+
+For Captain networking, sourcing, prospect research or questions such as "How do I use MCP for sourcing?", read [Captain sourcing](references/captain-sourcing.md). Lead with useful platform work such as capturing local connections, notes and follow-ups in their private CRM. Research can support that work. Check permitted prospecting and relationship context before recommending an approach, surface any known hold or prior outreach, and label missing coverage as unknown. Use the Wiki for Wilbe's criteria when needed; a strategy summary alone does not answer a product-use question. Keep an explanation request distinct from an instruction to start research or save records.
 
 ## Founder and Captain contributions
 
