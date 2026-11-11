@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "wilber": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/wilber",
-      "args": ["mcp-proxy"]
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/bin/wilber.mjs",
+        "mcp-proxy"
+      ]
     }
   }
 }

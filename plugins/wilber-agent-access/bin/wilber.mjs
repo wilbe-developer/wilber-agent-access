@@ -13,7 +13,7 @@ import {
 } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -27,13 +27,13 @@ import {
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { uploadBuildFile } from "./build-upload.mjs";
 import { transferScopedFile } from "./file-transfer.mjs";
 import { exportScopedAccount } from "./account-export.mjs";
 
-const VERSION = "0.11.0";
+const VERSION = "0.11.1";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";
@@ -1880,7 +1880,10 @@ export async function main(argv = process.argv.slice(2)) {
   throw new WilberCliError(`Unknown command: ${command}. Run \`wilber help\`.`);
 }
 
-const isEntrypoint = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+// Node resolves filesystem aliases before loading modules. Compare real paths so
+// a plugin installed under an aliased or Unicode path still starts when invoked.
+const isEntrypoint = process.argv[1] && existsSync(process.argv[1]) &&
+  realpathSync(fileURLToPath(import.meta.url)) === realpathSync(path.resolve(process.argv[1]));
 if (isEntrypoint) {
   main().catch((error) => {
     const message = error instanceof Error ? error.message : "Wilber command failed.";

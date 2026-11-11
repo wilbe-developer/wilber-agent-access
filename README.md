@@ -1,6 +1,6 @@
 # Wilber Agent Access
 
-Current release: [Wilber Agent Access 0.11.0](https://github.com/wilbe-developer/wilber-agent-access/releases/tag/v0.11.0), for founders, Captains and team members using Claude Code or Codex.
+Current release: [Wilber Agent Access 0.11.1](https://github.com/wilbe-developer/wilber-agent-access/releases/tag/v0.11.1), for founders, Captains and team members using Claude Code or Codex.
 
 This is the official Wilber Agent Access marketplace. It installs the Wilber skill, CLI, and secure live connection in a supported personal agent client. The repository contains no Wilber credentials, workflow data, or access authority.
 
@@ -14,6 +14,20 @@ claude plugin install wilber-agent-access@wilbe
 Or ask Claude in a local Claude Code Desktop task:
 
 > Install Wilber Agent Access from Wilbe's official marketplace at https://github.com/wilbe-developer/wilber-agent-access. Add the marketplace, install `wilber-agent-access@wilbe`, and verify the publisher and version. Keep setup explanations short and non-technical. If a fresh task is required, stop and tell me only: "Wilber Agent Access is installed. Please open a new task and send: Continue Wilber setup." In the fresh task, open secure Wilbe sign-in, verify the connection with `wilber doctor`, and recommend one useful first task. In Claude, also help me enable auto-update in Plugins > Marketplaces > Wilbe. Never ask me to paste credentials or tokens into chat.
+
+## Windows and updating Claude Code
+
+Version 0.11.1 starts the Claude connector directly with Node.js, avoiding the Unix shell launcher that could fail on Windows. Node.js 22 or later must be available to Claude. If you just installed Node.js, restart Claude so it picks up the updated PATH.
+
+To update an existing installation, ask your Claude agent to run:
+
+```text
+claude plugin update wilber-agent-access@wilbe
+```
+
+Then follow Claude's plugin reload instruction or open a new task. Ask it to verify your identity, available tools and connection with `wilber doctor`. The update uses your existing approved connection; another sign-in is needed only if it has expired or been revoked.
+
+If invoking the helper manually on Windows, use `node "<plugin-path>/bin/wilber.mjs" doctor` instead of the Unix `bin/wilber` script. The connector and helper use the same local credential store.
 
 ## Codex CLI
 
@@ -47,7 +61,7 @@ The team login above opens Wilbe in the browser and stores the resulting OAuth g
 
 ## Versioning and provenance
 
-The current CLI and Claude plugin version is `0.11.0`. The Codex plugin reports `0.11.0+codex.20261020`; the suffix identifies its Codex build of the same release. Both marketplace catalogs install the plugin from `plugins/wilber-agent-access`.
+The current CLI and Claude plugin version is `0.11.1`. The Codex plugin reports `0.11.1+codex.20261111`; the suffix identifies its Codex build of the same release. Both marketplace catalogs install the plugin from `plugins/wilber-agent-access`.
 
 GitHub shows the last commit message beside each folder. An older release number beside `.agents/plugins` or `.claude-plugin` records when that catalog last changed. Check the plugin manifests and [release notes](https://github.com/wilbe-developer/wilber-agent-access/releases/latest) for the current version.
 
