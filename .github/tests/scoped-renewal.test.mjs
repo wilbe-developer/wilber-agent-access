@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {mkdtemp,readFile,writeFile,rm,stat,symlink} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,rename,rm,stat,symlink} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
 import {spawn,spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import {renewScopedCredential} from '../../plugins/wilber-agent-access/bin/scoped-renewal.mjs';
+import {renewScopedCredential,withCredentialLock} from '../../plugins/wilber-agent-access/bin/scoped-renewal.mjs';
 
 const id='11111111-1111-4111-8111-111111111111';
 async function assertPrivateFile(file){
@@ -39,11 +40,11 @@ async function fixture(run){
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
   const endpoint=`http://127.0.0.1:${server.address().port}/api/wilber/mcp`;
   const file=path.join(directory,'credentials.json');
-  const saveCredential=c=>writeFile(file,JSON.stringify(c),{mode:0o600});
+  const saveCredential=async c=>{const temporary=`${file}.${randomUUID()}.tmp`;await writeFile(temporary,JSON.stringify(c),{mode:0o600});await rename(temporary,file);};
   const readCredential=async()=>JSON.parse(await readFile(file,'utf8'));
   const make=extra=>({kind:'scoped',connectionId:id,audience:'captain',endpoint,accessToken:`wb_agent_${'a'.repeat(64)}`,expiresAt:new Date(Date.now()+86400000).toISOString(),...extra});
   const ok=res=>res.end(JSON.stringify({connection_id:id,audience:'captain',permissions:['access.get'],expires_at:new Date(Date.now()+3600000).toISOString(),refresh_expires_at:new Date(Date.now()+90*86400000).toISOString()}));
-  const renew=async(options={})=>renewScopedCredential({credential:await readCredential(),directory,readCredential,saveCredential,endpoint,...options});
+  const renew=async(options={})=>renewScopedCredential({credential:options.credential || await readCredential(),directory,readCredential,saveCredential,endpoint,...options});
   try{await run({make,saveCredential,readCredential,renew,bodies,ok,directory,file,setHandle:h=>handle=h});}
   finally{await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
 }
@@ -134,4 +135,24 @@ test('older server compatibility keeps only an unexpired legacy credential',()=>
   f.setHandle((body,res)=>{res.statusCode=404;res.end('{}');});await f.saveCredential(f.make());
   const old=await f.renew();assert.equal(old.refreshToken,undefined);assert.equal(old.pendingRenewal,undefined);
   await f.saveCredential(f.make({expiresAt:new Date(Date.now()-1000).toISOString()}));await assert.rejects(f.renew(),{code:'connection_expired'});
+}));
+
+test('a queued renewal cannot adopt another connection after the credential store changes',()=>fixture(async f=>{
+  await f.saveCredential(f.make());const old=await f.readCredential();
+  let entered,release;const held=new Promise(resolve=>entered=resolve);const gate=new Promise(resolve=>release=resolve);
+  const owner=withCredentialLock(f.directory,async()=>{entered();await gate;});await held;
+  const waiting=f.renew({credential:old});
+  const rejected=assert.rejects(waiting,{code:'connection_changed'});
+  const changed=f.make({connectionId:'22222222-2222-4222-8222-222222222222',audience:'founder'});
+  await f.saveCredential(changed);release();await owner;
+  await rejected;
+  assert.deepEqual(await f.readCredential(),changed);assert.equal(f.bodies.length,0);
+}));
+
+for (const responseStatus of [200,404]) test(`a renewal response (${responseStatus}) cannot overwrite a credential replaced outside the cooperating client`,()=>fixture(async f=>{
+  await f.saveCredential(f.make());
+  const changed=f.make({connectionId:'22222222-2222-4222-8222-222222222222',audience:'founder'});
+  f.setHandle(async(body,res)=>{await f.saveCredential(changed);res.statusCode=responseStatus;f.ok(res);});
+  await assert.rejects(f.renew(),{code:'connection_changed'});
+  assert.deepEqual(await f.readCredential(),changed);
 }));

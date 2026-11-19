@@ -32,7 +32,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { uploadBuildFile } from "./build-upload.mjs";
 import { transferScopedFile } from "./file-transfer.mjs";
 import { exportScopedAccount } from "./account-export.mjs";
-import { renewScopedCredential } from "./scoped-renewal.mjs";
+import { renewScopedCredential, withCredentialLock } from "./scoped-renewal.mjs";
 
 const VERSION = "0.12.0";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
@@ -495,6 +495,7 @@ function credentialsMatch(expected, actual) {
     JSON.stringify(expected.pendingRenewal || null) === JSON.stringify(actual.pendingRenewal || null);
   if (expected.kind !== "oauth") return true;
   return (
+    expected.authSessionId === actual.authSessionId &&
     expected.refreshToken === actual.refreshToken &&
     expected.clientId === actual.clientId &&
     expected.tokenEndpoint === actual.tokenEndpoint
@@ -597,7 +598,7 @@ async function writeMacKeychainCredential(serialized) {
   }
 }
 
-async function saveCredential(credential) {
+async function persistCredential(credential) {
   const serialized = JSON.stringify(credential);
   const keychainWritten = await writeMacKeychainCredential(serialized);
   if (keychainWritten) {
@@ -629,6 +630,19 @@ async function saveCredential(credential) {
   return credentialPath();
 }
 
+async function readCurrentCredential() {
+  return inspectMacKeychainCredential().credential || await readFileCredential();
+}
+
+async function saveCredential(credential, expected = null) {
+  return withCredentialLock(configDirectory(), async () => {
+    if (expected && !credentialsMatch(expected, await readCurrentCredential())) {
+      throw new WilberCliError("Your Wilber connection changed. Continue with the current connection.", { code: "connection_changed" });
+    }
+    return persistCredential(credential);
+  });
+}
+
 async function refreshOauthCredential(credential) {
   const response = await fetch(credential.tokenEndpoint, {
     method: "POST",
@@ -653,11 +667,11 @@ async function refreshOauthCredential(credential) {
     expiresAt: Date.now() + Number(body.expires_in || 3600) * 1000,
     scope: typeof body.scope === "string" ? body.scope : credential.scope,
   };
-  await saveCredential(refreshed);
+  await saveCredential(refreshed, credential);
   return refreshed;
 }
 
-export async function resolveToken({ forceRefresh = false, rejectedToken = null } = {}) {
+export async function resolveToken({ forceRefresh = false, rejectedToken = null, expectedConnection = null } = {}) {
   if (process.env.WILBER_ACCESS_TOKEN) {
     return { token: process.env.WILBER_ACCESS_TOKEN.trim(), source: "environment", kind: "personal_token" };
   }
@@ -669,6 +683,25 @@ export async function resolveToken({ forceRefresh = false, rejectedToken = null 
     source = credentialPath();
   }
   if (credential) {
+    // A local login identity survives token rotation but changes on explicit
+    // sign-in. Upgrade existing OAuth records under the same mutation lock.
+    if (credential.kind === "oauth" && !credential.authSessionId) {
+      credential = await withCredentialLock(configDirectory(), async () => {
+        const current = await readCurrentCredential();
+        if (current?.authSessionId && credentialsMatch({ ...credential, authSessionId: current.authSessionId }, current)) return current;
+        if (!credentialsMatch(credential, current)) {
+          throw new WilberCliError("Your Wilber connection changed. Try again with the current account.", { code: "connection_changed" });
+        }
+        const upgraded = { ...current, authSessionId: randomUUID() };
+        await persistCredential(upgraded);
+        return upgraded;
+      });
+    }
+    if (expectedConnection && (credential.kind !== expectedConnection.kind ||
+        (credential.kind === "scoped" && (credential.connectionId !== expectedConnection.connectionId || credential.audience !== expectedConnection.audience)) ||
+        (credential.kind === "oauth" && (credential.authSessionId !== expectedConnection.authSessionId || credential.clientId !== expectedConnection.clientId || credential.tokenEndpoint !== expectedConnection.tokenEndpoint)))) {
+      throw new WilberCliError("Your Wilber connection changed. Continue in a fresh task with the current account.", { code: "connection_changed" });
+    }
     if (rejectedToken && credential.accessToken !== rejectedToken) forceRefresh = false;
     if (credential.kind === "scoped" && credential.endpoint !== endpoint()) {
       throw new WilberCliError("This connection belongs to a different Wilber endpoint. Reconnect for the selected endpoint.", {code:"connection_resource_mismatch"});
@@ -676,7 +709,7 @@ export async function resolveToken({ forceRefresh = false, rejectedToken = null 
     if (credential.kind === "scoped") {
       try {
         credential = await renewScopedCredential({ credential, directory: configDirectory(), endpoint: endpoint(), forceRefresh,
-          readCredential: async () => inspectMacKeychainCredential().credential || await readFileCredential(), saveCredential });
+          readCredential: readCurrentCredential, saveCredential: persistCredential });
       } catch (error) {
         throw new WilberCliError(error.message, { code: error.code || "connection_renewal_failed", status: error.status });
       }
@@ -687,7 +720,8 @@ export async function resolveToken({ forceRefresh = false, rejectedToken = null 
     ) {
       credential = await refreshOauthCredential(credential);
     }
-    return { token: credential.accessToken, source, kind: credential.kind, audience: credential.audience };
+    return { token: credential.accessToken, source, kind: credential.kind, audience: credential.audience,
+      connectionId: credential.connectionId, authSessionId: credential.authSessionId, clientId: credential.clientId, tokenEndpoint: credential.tokenEndpoint };
   }
   if (keychain.state === "empty" || keychain.state === "invalid") {
     throw new WilberCliError(
@@ -890,6 +924,7 @@ async function browserOauthLogin() {
     }
     const credential = {
       kind: "oauth",
+      authSessionId: randomUUID(),
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       expiresAt: Date.now() + Number(tokens.expires_in || 3600) * 1000,
@@ -947,11 +982,13 @@ export async function browserScopedLogin(audience) {
 }
 
 async function deleteStoredToken() {
-  deleteMacKeychainCredential();
-  await Promise.all([
-    rm(credentialPath(), { force: true }),
-    rm(encryptedCredentialPath(), { force: true }),
-  ]);
+  await withCredentialLock(configDirectory(), async () => {
+    deleteMacKeychainCredential();
+    await Promise.all([
+      rm(credentialPath(), { force: true }),
+      rm(encryptedCredentialPath(), { force: true }),
+    ]);
+  });
 }
 
 function requestFailure(status, body, auth) {
@@ -1015,7 +1052,7 @@ async function rpcRequest(method, params = {}, suppliedToken = null, options = {
   const initial = suppliedToken ? { token: suppliedToken, kind: "supplied" } : await resolveToken();
   let response = await execute(initial.token);
   if (response.status === 401 && !suppliedToken && ["oauth", "scoped"].includes(initial.kind)) {
-    const refreshed = await resolveToken({ forceRefresh: true, rejectedToken: initial.token });
+    const refreshed = await resolveToken({ forceRefresh: true, rejectedToken: initial.token, expectedConnection: initial });
     if (refreshed.token !== initial.token) response = await execute(refreshed.token);
   }
   rememberLatestVersion(response);
@@ -1789,7 +1826,7 @@ async function proxyRequest(message) {
   const auth = await resolveToken();
   let response = await execute(auth.token);
   if (response.status === 401 && ["oauth", "scoped"].includes(auth.kind)) {
-    const refreshed = await resolveToken({ forceRefresh: true, rejectedToken: auth.token });
+    const refreshed = await resolveToken({ forceRefresh: true, rejectedToken: auth.token, expectedConnection: auth });
     if (refreshed.token !== auth.token) response = await execute(refreshed.token);
   }
   rememberLatestVersion(response);

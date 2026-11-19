@@ -13,7 +13,7 @@ const failure = (message, code, status) => Object.assign(new Error(message), { c
 // Aliases of the same store share one identity. A hash collision or another
 // local service can cause a busy error; never pick a second port and lose
 // mutual exclusion. This service receives and returns no credential data.
-async function withCredentialLock(directory, operation) {
+export async function withCredentialLock(directory, operation) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   let canonical = await realpath(directory);
   if (process.platform === "win32") canonical = canonical.toLowerCase();
@@ -46,7 +46,8 @@ export async function renewScopedCredential({ credential, directory, readCredent
   let recoveryRotations = 0;
   return withCredentialLock(directory, async function renewLocked() {
     const stored = await readCredential();
-    if (!stored || stored.kind !== "scoped" || stored.endpoint !== endpoint) {
+    if (!stored || stored.kind !== "scoped" || stored.endpoint !== endpoint ||
+        stored.connectionId !== credential.connectionId || stored.audience !== credential.audience) {
       throw failure("Your Wilber connection changed. Try again with the current connection.", "connection_changed");
     }
     let current = stored;
@@ -87,11 +88,21 @@ export async function renewScopedCredential({ credential, directory, readCredent
     } catch {
       throw failure("Wilber could not confirm connection renewal. Try again; your saved renewal will be recovered automatically.", "connection_renewal_pending");
     }
+    const assertCurrentPending = async () => {
+      const latest = await readCredential();
+      if (!latest || latest.kind !== "scoped" || latest.connectionId !== current.connectionId || latest.audience !== current.audience || latest.endpoint !== current.endpoint ||
+          latest.accessToken !== current.accessToken || latest.refreshToken !== current.refreshToken ||
+          latest.pendingRenewal?.rotationId !== pending.rotationId || latest.pendingRenewal?.accessToken !== pending.accessToken ||
+          latest.pendingRenewal?.refreshToken !== pending.refreshToken) {
+        throw failure("Your Wilber connection changed during renewal. Continue with the current connection.", "connection_changed");
+      }
+    };
     // Backend-first rollout: an older server can still use an unexpired legacy
     // credential. Never downgrade a renewable credential or an uncertain result.
     if ([400, 404, 405].includes(response.status) && !current.refreshToken) {
       if (expires <= now) throw failure(`Your Wilber connection has expired. Run wilber auth login --audience ${current.audience} to reconnect.`, "connection_expired", 401);
       const { pendingRenewal, ...legacy } = current;
+      await assertCurrentPending();
       await saveCredential(legacy);
       return legacy;
     }
@@ -109,6 +120,7 @@ export async function renewScopedCredential({ credential, directory, readCredent
     const { pendingRenewal, ...previous } = current;
     const renewed = { ...previous, accessToken: pending.accessToken, refreshToken: pending.refreshToken,
       expiresAt: result.expires_at, refreshExpiresAt: result.refresh_expires_at };
+    await assertCurrentPending();
     await saveCredential(renewed);
     if (Date.parse(renewed.expiresAt) <= Date.now() + 60_000) {
       if (++recoveryRotations > 1) throw failure("Wilber could not confirm fresh connection access. Try again to recover it.", "connection_renewal_pending");
