@@ -17,7 +17,11 @@ async function assertPrivateFile(file){
   const script='(Get-Acl -LiteralPath $env:WILBER_TEST_CREDENTIAL).Access | ForEach-Object { [pscustomobject]@{sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;allow=($_.AccessControlType -eq "Allow");rights=[int64]$_.FileSystemRights} } | ConvertTo-Json -Compress';
   // EncodedCommand preserves PowerShell quotes across Windows native argument
   // parsing. Only this fixed DACL-reading script is encoded, never user input.
-  const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',env:{...process.env,WILBER_TEST_CREDENTIAL:file}});
+  const environment={...process.env,WILBER_TEST_CREDENTIAL:file};
+  // A PowerShell 7 parent (including GitHub runners) supplies incompatible
+  // module paths to Windows PowerShell 5.1. Let that host build its own paths.
+  for(const key of Object.keys(environment))if(key.toLowerCase()==='psmodulepath')delete environment[key];
+  const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',env:environment});
   assert.equal(result.status,0,`native Windows credential DACL inspection must succeed: ${result.stderr}`);
   const raw=JSON.parse(result.stdout);const entries=Array.isArray(raw)?raw:[raw];
   const broad=new Set(['S-1-1-0','S-1-5-11','S-1-5-32-545','S-1-5-32-546']);
