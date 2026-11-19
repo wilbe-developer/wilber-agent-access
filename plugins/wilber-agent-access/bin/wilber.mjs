@@ -32,8 +32,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { uploadBuildFile } from "./build-upload.mjs";
 import { transferScopedFile } from "./file-transfer.mjs";
 import { exportScopedAccount } from "./account-export.mjs";
+import { renewScopedCredential } from "./scoped-renewal.mjs";
 
-const VERSION = "0.11.2";
+const VERSION = "0.12.0";
 const DEFAULT_ENDPOINT = "https://app.wilbe.com/api/wilber/mcp";
 const DEFAULT_KEYCHAIN_SERVICE = "com.wilbe.wilber-agent-access";
 const DEFAULT_KEYCHAIN_ACCOUNT = "default";
@@ -488,6 +489,10 @@ async function readFileCredential() {
 function credentialsMatch(expected, actual) {
   if (!expected || !actual || expected.kind !== actual.kind) return false;
   if (expected.accessToken !== actual.accessToken) return false;
+  if (expected.kind === "scoped") return expected.refreshToken === actual.refreshToken &&
+    expected.refreshExpiresAt === actual.refreshExpiresAt && expected.expiresAt === actual.expiresAt &&
+    expected.connectionId === actual.connectionId && expected.audience === actual.audience && expected.endpoint === actual.endpoint &&
+    JSON.stringify(expected.pendingRenewal || null) === JSON.stringify(actual.pendingRenewal || null);
   if (expected.kind !== "oauth") return true;
   return (
     expected.refreshToken === actual.refreshToken &&
@@ -541,16 +546,35 @@ expect {
 }
 
 async function writeMacKeychainCredential(serialized) {
-  const key = randomBytes(32);
+  if (process.platform !== "darwin" || process.env.WILBER_DISABLE_KEYCHAIN === "1") return false;
+  const existing = spawnSync("security", ["find-generic-password", "-a", keychainAccount(), "-s", keychainService(), "-w"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (existing.status !== 0 && existing.status !== 44) return false;
+  const raw = existing.status === 0 ? existing.stdout.trim() : "";
+  const reuseKey = raw.startsWith(KEYCHAIN_KEY_PREFIX);
+  const key = reuseKey ? Buffer.from(raw.slice(KEYCHAIN_KEY_PREFIX.length), "base64url") : randomBytes(32);
+  if (key.length !== 32) return false;
   const keychainValue = `${KEYCHAIN_KEY_PREFIX}${key.toString("base64url")}`;
-  if (!(await writeMacKeychainSecret(keychainValue))) return false;
+  // Keep the encryption key stable while atomically replacing ciphertext. A
+  // process dying between key rotation and replacement must not lose renewal.
+  if (!reuseKey) {
+    const previous = parseStoredCredential(raw);
+    if (previous) {
+      await mkdir(configDirectory(), { recursive: true, mode: 0o700 });
+      const backup = `${credentialPath()}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(backup, JSON.stringify(previous), { mode: 0o600 });
+        await rename(backup, credentialPath());
+      } finally { await rm(backup, { force: true }); }
+    }
+    if (!(await writeMacKeychainSecret(keychainValue))) return false;
+  }
   const keychainReadback = spawnSync(
     "security",
     ["find-generic-password", "-a", keychainAccount(), "-s", keychainService(), "-w"],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
   if (keychainReadback.status !== 0 || keychainReadback.stdout.trim() !== keychainValue) {
-    deleteMacKeychainCredential();
     return false;
   }
   const destination = encryptedCredentialPath();
@@ -567,7 +591,6 @@ async function writeMacKeychainCredential(serialized) {
     await chmod(destination, 0o600);
     return true;
   } catch {
-    deleteMacKeychainCredential();
     return false;
   } finally {
     await rm(temporary, { force: true }).catch(() => undefined);
@@ -592,16 +615,17 @@ async function saveCredential(credential) {
   } else if (process.env.WILBER_DEBUG === "1" && process.platform === "darwin") {
     process.stderr.write("Wilber Keychain write did not complete; using the protected file store.\n");
   }
+  await mkdir(configDirectory(), { recursive: true, mode: 0o700 });
+  const temporary = `${credentialPath()}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(credential, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    await rename(temporary, credentialPath());
+    await chmod(credentialPath(), 0o600);
+  } finally { await rm(temporary, { force: true }); }
   if (process.platform === "darwin" && process.env.WILBER_DISABLE_KEYCHAIN !== "1") {
     deleteMacKeychainCredential();
   }
   await rm(encryptedCredentialPath(), { force: true });
-  await mkdir(configDirectory(), { recursive: true, mode: 0o700 });
-  await writeFile(credentialPath(), `${JSON.stringify(credential, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  await chmod(credentialPath(), 0o600);
   return credentialPath();
 }
 
@@ -633,7 +657,7 @@ async function refreshOauthCredential(credential) {
   return refreshed;
 }
 
-export async function resolveToken({ forceRefresh = false } = {}) {
+export async function resolveToken({ forceRefresh = false, rejectedToken = null } = {}) {
   if (process.env.WILBER_ACCESS_TOKEN) {
     return { token: process.env.WILBER_ACCESS_TOKEN.trim(), source: "environment", kind: "personal_token" };
   }
@@ -645,11 +669,17 @@ export async function resolveToken({ forceRefresh = false } = {}) {
     source = credentialPath();
   }
   if (credential) {
+    if (rejectedToken && credential.accessToken !== rejectedToken) forceRefresh = false;
     if (credential.kind === "scoped" && credential.endpoint !== endpoint()) {
       throw new WilberCliError("This connection belongs to a different Wilber endpoint. Reconnect for the selected endpoint.", {code:"connection_resource_mismatch"});
     }
-    if (credential.kind === "scoped" && Date.parse(credential.expiresAt) <= Date.now()) {
-      throw new WilberCliError(`Your connection has expired. Run wilber auth login --audience ${credential.audience} to reconnect.`, {code:"connection_expired",status:401});
+    if (credential.kind === "scoped") {
+      try {
+        credential = await renewScopedCredential({ credential, directory: configDirectory(), endpoint: endpoint(), forceRefresh,
+          readCredential: async () => inspectMacKeychainCredential().credential || await readFileCredential(), saveCredential });
+      } catch (error) {
+        throw new WilberCliError(error.message, { code: error.code || "connection_renewal_failed", status: error.status });
+      }
     }
     if (
       credential.kind === "oauth" &&
@@ -984,9 +1014,9 @@ async function rpcRequest(method, params = {}, suppliedToken = null, options = {
   }
   const initial = suppliedToken ? { token: suppliedToken, kind: "supplied" } : await resolveToken();
   let response = await execute(initial.token);
-  if (response.status === 401 && !suppliedToken && initial.kind === "oauth") {
-    const refreshed = await resolveToken({ forceRefresh: true });
-    response = await execute(refreshed.token);
+  if (response.status === 401 && !suppliedToken && ["oauth", "scoped"].includes(initial.kind)) {
+    const refreshed = await resolveToken({ forceRefresh: true, rejectedToken: initial.token });
+    if (refreshed.token !== initial.token) response = await execute(refreshed.token);
   }
   rememberLatestVersion(response);
   const bodyText = await response.text();
@@ -1758,9 +1788,9 @@ async function proxyRequest(message) {
   }
   const auth = await resolveToken();
   let response = await execute(auth.token);
-  if (response.status === 401 && auth.kind === "oauth") {
-    const refreshed = await resolveToken({ forceRefresh: true });
-    response = await execute(refreshed.token);
+  if (response.status === 401 && ["oauth", "scoped"].includes(auth.kind)) {
+    const refreshed = await resolveToken({ forceRefresh: true, rejectedToken: auth.token });
+    if (refreshed.token !== auth.token) response = await execute(refreshed.token);
   }
   rememberLatestVersion(response);
   const text = await response.text();

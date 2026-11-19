@@ -134,3 +134,5 @@ test('packaged Claude launcher works without a shell, including spaces and Unico
     assert.equal(observed.length, before);
   });
 });
+
+import './scoped-renewal.test.mjs';
