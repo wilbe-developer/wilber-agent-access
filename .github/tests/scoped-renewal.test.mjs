@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {mkdtemp,readFile,writeFile,rm,stat,symlink} from 'node:fs/promises';
-import {spawn} from 'node:child_process';
+import {spawn,spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +9,18 @@ import test from 'node:test';
 import {renewScopedCredential} from '../../plugins/wilber-agent-access/bin/scoped-renewal.mjs';
 
 const id='11111111-1111-4111-8111-111111111111';
+async function assertPrivateFile(file){
+  assert.ok((await stat(file)).isFile());
+  if(process.platform!=='win32'){assert.equal((await stat(file)).mode&0o777,0o600);return;}
+  // Windows chmod bits do not describe its DACL. Verify actual native access
+  // rather than skipping privacy coverage or asserting a fictitious POSIX mode.
+  const script='(Get-Acl -LiteralPath $env:WILBER_TEST_CREDENTIAL).Access | ForEach-Object { [pscustomobject]@{sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;allow=($_.AccessControlType -eq "Allow");rights=[int64]$_.FileSystemRights} } | ConvertTo-Json -Compress';
+  const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{encoding:'utf8',env:{...process.env,WILBER_TEST_CREDENTIAL:file}});
+  assert.equal(result.status,0,'native Windows credential DACL inspection must succeed');
+  const raw=JSON.parse(result.stdout);const entries=Array.isArray(raw)?raw:[raw];
+  const broad=new Set(['S-1-1-0','S-1-5-11','S-1-5-32-545','S-1-5-32-546']);
+  assert.equal(entries.some(e=>e.allow&&broad.has(e.sid)&&(e.rights&(1|2|4|65536|262144|524288))!==0),false,'credential must not grant broad read/write/delete/ownership access');
+}
 async function fixture(run){
   const directory=await mkdtemp(path.join(os.tmpdir(),'wilber-renewal-'));
   let handle;const bodies=[];
@@ -33,7 +45,7 @@ async function fixture(run){
 test('existing legacy connection upgrades in place, stays private, and fresh credential makes no network request',()=>fixture(async f=>{
   await f.saveCredential(f.make());f.setHandle((body,res)=>{assert.equal(body.action,'renew');assert.equal(body.credential,`wb_agent_${'a'.repeat(64)}`);f.ok(res);});
   const next=await f.renew();assert.equal(next.connectionId,id);assert.equal(next.audience,'captain');assert.match(next.refreshToken,/^wb_refresh_/);assert.notEqual(next.accessToken,`wb_agent_${'a'.repeat(64)}`);
-  assert.equal(next.pendingRenewal,undefined);assert.equal((await stat(f.file)).mode&0o777,0o600);
+  assert.equal(next.pendingRenewal,undefined);await assertPrivateFile(f.file);
   assert.equal((await f.renew()).accessToken,next.accessToken);assert.equal(f.bodies.length,1);
 }));
 
