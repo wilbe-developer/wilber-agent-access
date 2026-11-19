@@ -1,6 +1,6 @@
 # Wilber Agent Access
 
-Current release: [Wilber Agent Access 0.11.2](https://github.com/wilbe-developer/wilber-agent-access/releases/tag/v0.11.2), for founders, Captains and team members using Claude Code or Codex.
+Current release: [Wilber Agent Access 0.12.0](https://github.com/wilbe-developer/wilber-agent-access/releases/tag/v0.12.0), for founders, Captains and team members using Claude Code or Codex.
 
 This is the official Wilber Agent Access marketplace. It installs the Wilber skill, CLI, and secure live connection in a supported personal agent client. The repository contains no Wilber credentials, workflow data, or access authority.
 
@@ -48,7 +48,7 @@ Show my Wilber identity, permissions and available tools. Help me choose one use
 
 The plugin shares one browser-approved credential between its MCP tools and CLI. It is stored privately on the device and is never copied into chat.
 
-Portfolio founders run `wilber auth login --audience founder`; Captains run `wilber auth login --audience captain`. Sign in with your own Wilbe account, review the permission checklist and approve. The resulting connection lasts 30 days and is limited by both your selected permissions and your current Wilbe access. Revoke it at any time in Profile Settings > AI access. Reviewed submissions enter Wilbe's review queue before any CRM merge or outreach.
+Portfolio founders run `wilber auth login --audience founder`; Captains run `wilber auth login --audience captain`. Sign in with your own Wilbe account, review the permission checklist and approve. The latest plugin renews the connection automatically while you use it. Its access remains limited by both your selected permissions and your current Wilbe access. After 90 days without renewal, sign in again. Existing eligible connections upgrade in place when the updated plugin is next used, without adding permissions. Older installed plugins need an update to enable renewal. Revoke it at any time in Profile Settings > AI access. Reviewed submissions enter Wilbe's review queue before any CRM merge or outreach.
 
 The bundled `wilber` CLI remains available for complete workflow exports and local workflow editing. It uses the same authorization as the plugin connection:
 
@@ -61,7 +61,7 @@ The team login above opens Wilbe in the browser and stores the resulting OAuth g
 
 ## Versioning and provenance
 
-The current CLI and Claude plugin version is `0.11.2`. The Codex plugin reports `0.11.2+codex.20261111`; the suffix identifies its Codex build of the same release. Both marketplace catalogs install the plugin from `plugins/wilber-agent-access`.
+The current CLI and Claude plugin version is `0.12.0`. The Codex plugin reports `0.12.0+codex.20261119`; the suffix identifies its Codex build of the same release. Both marketplace catalogs install the plugin from `plugins/wilber-agent-access`.
 
 GitHub shows the last commit message beside each folder. An older release number beside `.agents/plugins` or `.claude-plugin` records when that catalog last changed. Check the plugin manifests and [release notes](https://github.com/wilbe-developer/wilber-agent-access/releases/latest) for the current version.
 
