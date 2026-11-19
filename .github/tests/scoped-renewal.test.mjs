@@ -15,8 +15,10 @@ async function assertPrivateFile(file){
   // Windows chmod bits do not describe its DACL. Verify actual native access
   // rather than skipping privacy coverage or asserting a fictitious POSIX mode.
   const script='(Get-Acl -LiteralPath $env:WILBER_TEST_CREDENTIAL).Access | ForEach-Object { [pscustomobject]@{sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;allow=($_.AccessControlType -eq "Allow");rights=[int64]$_.FileSystemRights} } | ConvertTo-Json -Compress';
-  const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{encoding:'utf8',env:{...process.env,WILBER_TEST_CREDENTIAL:file}});
-  assert.equal(result.status,0,'native Windows credential DACL inspection must succeed');
+  // EncodedCommand preserves PowerShell quotes across Windows native argument
+  // parsing. Only this fixed DACL-reading script is encoded, never user input.
+  const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',env:{...process.env,WILBER_TEST_CREDENTIAL:file}});
+  assert.equal(result.status,0,`native Windows credential DACL inspection must succeed: ${result.stderr}`);
   const raw=JSON.parse(result.stdout);const entries=Array.isArray(raw)?raw:[raw];
   const broad=new Set(['S-1-1-0','S-1-5-11','S-1-5-32-545','S-1-5-32-546']);
   assert.equal(entries.some(e=>e.allow&&broad.has(e.sid)&&(e.rights&(1|2|4|65536|262144|524288))!==0),false,'credential must not grant broad read/write/delete/ownership access');
